@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
-
+from backend.search_explainer import explain_results
 from backend.ai_interpreter import interpret_message
 from backend.search_engine import search_properties
 
@@ -37,14 +37,21 @@ def assistant(req: AssistantRequest):
             "amenities": filters.get("amenities"),
         }
 
-        results = search_properties(**mapped_filters)
+                    results = search_properties(**mapped_filters)
 
-        return {
-            "type": "results",
-            "count": len(results),
-            "results": results,
-            "filters": mapped_filters,
-        }
+            summary = explain_results(
+                query=req.message,
+                filters=mapped_filters,
+                results=results
+            )
+
+            return {
+                "type": "results",
+                "summary": summary,   # 👈 NUEVO
+                "count": len(results),
+                "results": results,
+                "filters": mapped_filters,
+            }
 
     # 🔴 CASO: ERROR / FALLBACK
     return {
