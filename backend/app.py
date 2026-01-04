@@ -35,3 +35,6 @@ def root():
         "status": "ok",
         "service": "SuperBuscador IA Chile"
     }
+@app.post("/cors-test")
+def cors_test():
+    return {"ok": True}
