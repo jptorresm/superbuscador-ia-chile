@@ -49,12 +49,25 @@ class SearchRequest(BaseModel):
 # ======================================================
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_PATH = BASE_DIR / "data" / "propiedades.json"
+DATA_SOURCES_DIR = BASE_DIR / "data" / "sources"
 
 
 def load_properties():
-    return json.loads(DATA_PATH.read_text(encoding="utf-8"))
+    properties = []
 
+    if not DATA_SOURCES_DIR.exists():
+        raise FileNotFoundError("No data sources directory found")
+
+    for file in DATA_SOURCES_DIR.glob("*.json"):
+        source_name = file.stem
+
+        data = json.loads(file.read_text(encoding="utf-8"))
+
+        for p in data:
+            p["source"] = source_name
+            properties.append(p)
+
+    return properties
 
 def sanitize(properties):
     """Elimina NaN o valores raros"""
