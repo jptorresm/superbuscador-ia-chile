@@ -2,20 +2,32 @@ import json
 from pathlib import Path
 from openai import OpenAI
 
+# Cliente OpenAI (usa OPENAI_API_KEY del entorno)
 client = OpenAI()
 
-# Cargar prompt
-PROMPT_PATH = Path("prompts/interpretar_busqueda.md")
+# -------------------------------------------------
+# Cargar prompt de forma robusta (funciona en Render)
+# -------------------------------------------------
+PROMPT_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "prompts"
+    / "interpretar_busqueda.md"
+)
 SYSTEM_PROMPT = PROMPT_PATH.read_text(encoding="utf-8")
 
-# JSON Schema estricto
+# -------------------------------------------------
+# JSON Schema estricto para Structured Outputs
+# -------------------------------------------------
 SCHEMA = {
     "name": "RealEstateIntent",
     "schema": {
         "type": "object",
         "additionalProperties": False,
         "properties": {
-            "action": {"type": "string", "enum": ["ask", "search"]},
+            "action": {
+                "type": "string",
+                "enum": ["ask", "search"],
+            },
             "message": {"type": "string"},
             "missing_fields": {
                 "type": "array",
@@ -43,11 +55,13 @@ SCHEMA = {
     },
 }
 
-
+# -------------------------------------------------
+# Interpreter principal
+# -------------------------------------------------
 def interpret_message(text: str) -> dict:
     try:
         resp = client.responses.create(
-            model="gpt-4o-mini",
+            model="gpt-4.1-mini",
             input=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": text},
@@ -61,7 +75,9 @@ def interpret_message(text: str) -> dict:
             },
         )
 
-        # 🔑 Extracción ROBUSTA del JSON desde Responses API
+        # ---------------------------------------------
+        # Extracción robusta del JSON desde Responses API
+        # ---------------------------------------------
         for item in resp.output:
             # Caso 1: output_text directo
             if item.get("type") == "output_text" and "text" in item:
@@ -73,10 +89,11 @@ def interpret_message(text: str) -> dict:
                     if part.get("type") == "output_text" and "text" in part:
                         return json.loads(part["text"])
 
-        # Si llegamos aquí, OpenAI respondió pero no con JSON usable
-        raise ValueError("No valid JSON found in OpenAI response output")
+        # Si OpenAI respondió pero no entregó JSON usable
+        raise ValueError("No valid JSON found in OpenAI response")
 
     except Exception as e:
+        # Fallback defensivo (el sistema nunca se cae)
         print("ERROR interpret_message:", repr(e))
 
         return {
