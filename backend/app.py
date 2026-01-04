@@ -2,6 +2,20 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+def build_property_url(p: dict) -> str | None:
+    source = p.get("source")
+    codigo = p.get("codigo")
+
+    if source == "nexxos" and codigo:
+        return f"https://nexxospropiedades.cl/fichaPropiedad.aspx?i={codigo}"
+
+    # futuras fuentes
+    # if source == "portal_x":
+    #     return ...
+
+    return None
+
+
 # 🔹 Importa el search engine reutilizable
 from backend.search_engine import search_properties
 
@@ -23,7 +37,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://www.t4global.cl",
-        "https://t4global.cl",
+        "https://t4global.cl","https://www.nexxoschile.cl",
     ],
     allow_credentials=False,
     allow_methods=["*"],
@@ -55,6 +69,90 @@ def safe_interpret_query(query: str) -> dict:
     except Exception as e:
         print("⚠️ IA interpret_query error:", e)
         return {}
+# =========================
+# DATA + SEARCH ENGINE
+# =========================
+import json
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_SOURCES_DIR = BASE_DIR / "data" / "sources"
+
+
+def load_properties():
+    properties = []
+
+    if not DATA_SOURCES_DIR.exists():
+        return properties
+
+    for file in DATA_SOURCES_DIR.glob("*.json"):
+        source_name = file.stem
+        data = json.loads(file.read_text(encoding="utf-8"))
+
+        for p in data:
+            p["source"] = source_name
+            properties.append(p)
+
+    return properties
+
+
+def match_comuna(p, comuna):
+    if not comuna:
+        return True
+    return comuna.lower() in p.get("comuna", "").lower()
+
+
+def match_operacion(p, operacion):
+    if not operacion:
+        return True
+    return operacion.lower() in p.get("operacion", "").lower()
+
+
+def match_precio(p, precio_max):
+    if not precio_max:
+        return True
+    precio = p.get("precio")
+    try:
+        return float(precio) <= float(precio_max)
+    except Exception:
+        return False
+
+
+def match_amenities(p, amenities):
+    if not amenities:
+        return True
+    texto = json.dumps(p, ensure_ascii=False).lower()
+    return all(a.lower() in texto for a in amenities)
+
+
+def search_properties(
+    comuna=None,
+    operacion=None,
+    precio_max=None,
+    amenities=None,
+    limit=10,
+):
+    properties = load_properties()
+    results = []
+
+    for p in properties:
+        if not match_comuna(p, comuna):
+            continue
+        if not match_operacion(p, operacion):
+            continue
+        if not match_precio(p, precio_max):
+            continue
+        if not match_amenities(p, amenities):
+            continue
+
+        # 👉 AQUÍ se construye el link
+        p["url"] = build_property_url(p)
+        results.append(p)
+
+        if len(results) >= limit:
+            break
+
+    return results
 
 # =========================
 # ENDPOINTS
