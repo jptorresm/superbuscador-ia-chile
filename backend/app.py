@@ -21,10 +21,14 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # luego lo cerraremos a t4global.cl
+    allow_origins=[
+        "https://www.t4global.cl",
+        "https://t4global.cl"
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["POST", "GET", "OPTIONS"],
     allow_headers=["*"],
+
 )
 
 
