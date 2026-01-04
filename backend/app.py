@@ -7,6 +7,9 @@ import math
 import unicodedata
 
 app = FastAPI()
+from backend.assistant_router import router as assistant_router
+app.include_router(assistant_router)
+
 
 # =========================
 # CORS
