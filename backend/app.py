@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI(title="SuperBuscador IA Chile")
 
 # =========================
-# CORS (SIEMPRE ANTES DE ROUTERS)
+# CORS (ANTES DE TODO)
 # =========================
 app.add_middleware(
     CORSMiddleware,
@@ -25,3 +25,13 @@ app.add_middleware(
 # =========================
 from backend.assistant_router import router as assistant_router
 app.include_router(assistant_router)
+
+# =========================
+# ROOT (TEST)
+# =========================
+@app.get("/")
+def root():
+    return {
+        "status": "ok",
+        "service": "SuperBuscador IA Chile"
+    }
