@@ -1,18 +1,11 @@
 from pathlib import Path
 import json
 import unicodedata
-from typing import List, Dict, Optional
+from typing import Optional, List, Dict
 
 # =========================
-# PATHS (estructura real)
+# PATHS
 # =========================
-# Repo:
-# project-root/
-# ├── backend/
-# │   └── search_engine.py
-# └── data/
-#     └── sources/
-#         └── *.json
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_SOURCES_DIR = BASE_DIR / "data" / "sources"
@@ -23,7 +16,7 @@ DATA_SOURCES_DIR = BASE_DIR / "data" / "sources"
 # =========================
 
 def normalize_text(text: Optional[str]) -> Optional[str]:
-    if not text:
+    if text is None:
         return None
     text = str(text).lower().strip()
     return "".join(
@@ -32,21 +25,44 @@ def normalize_text(text: Optional[str]) -> Optional[str]:
     )
 
 
-def safe_int(value) -> Optional[int]:
+def parse_number(value) -> Optional[float]:
+    """
+    Convierte valores tipo:
+    - "1.200.000"
+    - "$1.200.000"
+    - "35 UF"
+    - "35"
+    a float
+    """
+    if value is None:
+        return None
+
+    s = str(value).lower().strip()
+    s = s.replace("$", "")
+    s = s.replace(".", "")
+    s = s.replace(",", ".")
+    s = s.replace("uf", "").strip()
+
     try:
-        return int(float(value))
+        return float(s)
     except Exception:
         return None
 
 
+def pick_first(d: dict, keys: List[str]):
+    for k in keys:
+        if k in d and d.get(k) not in (None, "", 0, "0"):
+            return d.get(k)
+    return None
+
+
 # =========================
-# CARGA DE DATA
+# CARGA DE PROPIEDADES
 # =========================
 
 def load_properties() -> List[Dict]:
     properties: List[Dict] = []
 
-    print("BASE_DIR:", BASE_DIR)
     print("DATA_SOURCES_DIR:", DATA_SOURCES_DIR)
     print("EXISTS:", DATA_SOURCES_DIR.exists())
 
@@ -59,13 +75,13 @@ def load_properties() -> List[Dict]:
                 data = json.load(f)
 
                 if not isinstance(data, list):
-                    print(f"WARNING: {file.name} no es una lista")
                     continue
 
                 for p in data:
                     if isinstance(p, dict):
                         p["_source"] = file.stem
                         properties.append(p)
+
         except Exception as e:
             print(f"ERROR loading {file.name}:", e)
 
@@ -74,6 +90,75 @@ def load_properties() -> List[Dict]:
 
 
 ALL_PROPERTIES: List[Dict] = load_properties()
+
+
+# =========================
+# PRECIO (MAPEO EXPLÍCITO)
+# =========================
+
+def get_price_for_property(p: dict, operacion: Optional[str]):
+    """
+    Devuelve (valor, moneda)
+    moneda: 'clp', 'uf' o None
+    """
+
+    op = normalize_text(operacion)
+
+    # 🔹 AJUSTADAS PARA DATA REAL (robusto)
+    ARRIENDO_UF_KEYS = [
+        "Precio Arriendo UF",
+        "Arriendo UF",
+        "Canon UF",
+    ]
+
+    ARRIENDO_CLP_KEYS = [
+        "Precio Arriendo",
+        "Arriendo CLP",
+        "Canon",
+        "Precio Arriendo CLP",
+        "Precio Arriendo $",
+    ]
+
+    VENTA_UF_KEYS = [
+        "Precio Venta UF",
+        "Venta UF",
+        "Precio UF",
+    ]
+
+    VENTA_CLP_KEYS = [
+        "Precio Venta",
+        "Venta CLP",
+        "Precio CLP",
+        "Precio Venta CLP",
+        "Precio Venta $",
+    ]
+
+    if op == "arriendo":
+        raw = pick_first(p, ARRIENDO_UF_KEYS)
+        if raw is not None:
+            val = parse_number(raw)
+            return (val, "uf") if val is not None else (None, None)
+
+        raw = pick_first(p, ARRIENDO_CLP_KEYS)
+        if raw is not None:
+            val = parse_number(raw)
+            return (val, "clp") if val is not None else (None, None)
+
+    if op == "venta":
+        raw = pick_first(p, VENTA_UF_KEYS)
+        if raw is not None:
+            val = parse_number(raw)
+            return (val, "uf") if val is not None else (None, None)
+
+        raw = pick_first(p, VENTA_CLP_KEYS)
+        if raw is not None:
+            val = parse_number(raw)
+            return (val, "clp") if val is not None else (None, None)
+
+    # fallback genérico
+    raw = pick_first(p, ["Precio", "precio", "Valor", "valor"])
+    val = parse_number(raw)
+    return (val, None) if val is not None else (None, None)
 
 
 # =========================
@@ -94,21 +179,15 @@ def search_properties(
 
     for p in ALL_PROPERTIES:
 
-        # -----------------
-        # COMUNA
-        # -----------------
+        # --- COMUNA ---
         if comuna_n:
             p_comuna = normalize_text(
-                p.get("Comuna") or
-                p.get("comuna") or
-                p.get("COMUNA")
+                p.get("Comuna") or p.get("comuna")
             )
             if p_comuna != comuna_n:
                 continue
 
-        # -----------------
-        # OPERACIÓN
-        # -----------------
+        # --- OPERACIÓN ---
         if operacion_n:
             venta = normalize_text(p.get("Venta"))
             arriendo = normalize_text(p.get("Arriendo"))
@@ -118,31 +197,23 @@ def search_properties(
             if operacion_n == "arriendo" and arriendo != "si":
                 continue
 
-        # -----------------
-        # PRECIO
-        # -----------------
+        # --- PRECIO ---
         if precio_max is not None:
-            precio = (
-                p.get("Precio") or
-                p.get("precio") or
-                p.get("Precio CLP")
-            )
+            val, moneda = get_price_for_property(p, operacion_n)
 
-            precio_i = safe_int(precio)
-            if precio_i is None:
+            # si no se puede leer el precio, NO rompe, solo descarta
+            if val is None:
                 continue
 
-            if precio_i > precio_max:
+            # ⚠️ por ahora NO convertimos UF → CLP
+            # (lo haremos explícito después)
+            if val > precio_max:
                 continue
 
-        # -----------------
-        # AMENITIES (básico)
-        # -----------------
+        # --- AMENITIES ---
         if amenities:
-            descripcion = normalize_text(
-                p.get("Descripcion") or p.get("descripcion")
-            ) or ""
-            if not all(normalize_text(a) in descripcion for a in amenities):
+            desc = normalize_text(p.get("Descripcion")) or ""
+            if not all(normalize_text(a) in desc for a in amenities):
                 continue
 
         results.append(p)
