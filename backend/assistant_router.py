@@ -21,8 +21,13 @@ def assistant(req: AssistantRequest):
     """
 
     decision = interpret_message(req.message)
+    action = decision.get("action")
 
-action = decision.get("action")
+    return {
+        "action": action,
+        "decision": decision
+    }
+
 
 # 🟡 CASO: FALTAN DATOS
 if action == "ask":
