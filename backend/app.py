@@ -23,13 +23,13 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://www.t4global.cl",
-        "https://t4global.cl"
+        "https://t4global.cl",
     ],
-    allow_credentials=True,
-    allow_methods=["POST", "GET", "OPTIONS"],
+    allow_credentials=False,
+    allow_methods=["*"],
     allow_headers=["*"],
-
 )
+
 
 
 # ======================================================
@@ -109,39 +109,47 @@ def root():
 
 @app.post("/search")
 def search_properties(req: SearchRequest):
-    properties = sanitize(load_properties())
+    try:
+        properties = sanitize(load_properties())
 
-    # 👉 USAR IA SI SOLO VIENE TEXTO
-    if not any([req.comuna, req.operacion, req.precio_max, req.amenities]):
-        try:
-            ia = interpret_query(req.query)
-            req.comuna = ia.get("comuna")
-            req.operacion = ia.get("operacion")
-            req.precio_max = ia.get("precio_max")
-            req.amenities = ia.get("amenities")
-        except Exception as e:
-            print("⚠️ Error IA:", e)
+        # IA solo si viene texto
+        if req.query:
+            try:
+                ia = interpret_query(req.query)
+                req.comuna = req.comuna or ia.get("comuna")
+                req.operacion = req.operacion or ia.get("operacion")
+                req.precio_max = req.precio_max or ia.get("precio_max")
+                req.amenities = req.amenities or ia.get("amenities")
+            except Exception as e:
+                print("IA error:", e)
 
-    results = []
-    for p in properties:
-        if not match_comuna(p, req.comuna):
-            continue
-        if not match_operacion(p, req.operacion):
-            continue
-        if not match_precio(p, req.precio_max):
-            continue
-        if not match_amenities(p, req.amenities):
-            continue
-        results.append(p)
+        results = []
+        for p in properties:
+            if not match_comuna(p, req.comuna):
+                continue
+            if not match_operacion(p, req.operacion):
+                continue
+            if not match_precio(p, req.precio_max):
+                continue
+            if not match_amenities(p, req.amenities):
+                continue
+            results.append(p)
 
-    return {
-        "query": req.query,
-        "filters_applied": {
-            "comuna": req.comuna,
-            "operacion": req.operacion,
-            "precio_max": req.precio_max,
-            "amenities": req.amenities,
-        },
-        "total": len(results),
-        "results": results[:10],
-    }
+        return {
+            "query": req.query,
+            "filters_applied": {
+                "comuna": req.comuna,
+                "operacion": req.operacion,
+                "precio_max": req.precio_max,
+                "amenities": req.amenities,
+            },
+            "total": len(results),
+            "results": results[:10],
+        }
+
+    except Exception as e:
+        # 🔥 ESTO GARANTIZA CORS INCLUSO EN ERROR
+        return {
+            "error": "internal_error",
+            "message": str(e),
+        }
