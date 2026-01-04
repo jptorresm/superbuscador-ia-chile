@@ -103,12 +103,11 @@ def interpret_message(text: str) -> dict:
         raise ValueError("No valid JSON found in OpenAI response")
 
     except Exception as e:
-        # Fallback defensivo (el sistema nunca se cae)
         print("ERROR interpret_message:", repr(e))
 
         return {
             "action": "ask",
-            "message": "Tuve un problema interpretando el mensaje. ¿Puedes reformularlo?",
+            "message": "DEBUG: interpreter activo con prompt hardcodeado",
             "missing_fields": [],
             "filters_partial": {},
         }
