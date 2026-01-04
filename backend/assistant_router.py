@@ -22,28 +22,30 @@ def assistant(req: AssistantRequest):
 
     decision = interpret_message(req.message)
 
-    # 🟡 CASO: FALTAN DATOS → PREGUNTAR
-    if decision.action == "ask":
-        return {
-            "type": "question",
-            "message": decision.message,
-            "missing_fields": decision.missing_fields,
-            "filters_partial": decision.filters_partial
-        }
+action = decision.get("action")
 
-    # 🟢 CASO: DATOS SUFICIENTES → BUSCAR
-    if decision.action == "search":
-        results = search_properties(decision.filters)
-
-        return {
-            "type": "results",
-            "results": results,
-            "count": len(results),
-            "filters": decision.filters
-        }
-
-    # 🔴 CASO: ERROR / DESCONOCIDO
+# 🟡 CASO: FALTAN DATOS
+if action == "ask":
     return {
-        "type": "error",
-        "message": decision.message or "No pude procesar la solicitud"
+        "type": "question",
+        "message": decision.get("message"),
+        "missing_fields": decision.get("missing_fields", []),
+        "filters_partial": decision.get("filters_partial", {}),
     }
+
+# 🟢 CASO: BUSCAR
+if action == "search":
+    results = search_properties(**decision.get("filters", {}))
+
+    return {
+        "type": "results",
+        "results": results,
+        "count": len(results),
+        "filters": decision.get("filters", {}),
+    }
+
+# 🔴 CASO: ERROR / FALLBACK
+return {
+    "type": "error",
+    "message": decision.get("message", "No pude procesar la solicitud"),
+}
