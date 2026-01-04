@@ -8,12 +8,22 @@ client = OpenAI()
 # -------------------------------------------------
 # Cargar prompt de forma robusta (funciona en Render)
 # -------------------------------------------------
-PROMPT_PATH = (
-    Path(__file__).resolve().parent.parent
-    / "prompts"
-    / "interpretar_busqueda.md"
-)
-SYSTEM_PROMPT = PROMPT_PATH.read_text(encoding="utf-8")
+SYSTEM_PROMPT = """
+Eres un asistente que interpreta búsquedas inmobiliarias en Chile.
+Devuelve SOLO un JSON válido.
+
+Campos:
+- action: "ask" o "search"
+- filters: objeto con posibles claves:
+  - comuna
+  - operation ("venta" o "arriendo")
+  - property_type ("casa" o "departamento")
+  - price_max (entero CLP)
+
+Si puedes buscar, action = "search".
+Si falta información crítica, action = "ask".
+"""
+
 
 # -------------------------------------------------
 # JSON Schema estricto para Structured Outputs
