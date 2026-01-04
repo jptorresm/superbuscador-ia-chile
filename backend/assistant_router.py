@@ -1,8 +1,9 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
-from backend.search_explainer import explain_results
+
 from backend.ai_interpreter import interpret_message
 from backend.search_engine import search_properties
+from backend.search_explainer import explain_results
 
 router = APIRouter(tags=["assistant"])
 
@@ -32,26 +33,28 @@ def assistant(req: AssistantRequest):
         # 🔁 Mapear filtros IA → search_engine
         mapped_filters = {
             "comuna": filters.get("comuna"),
-            "operacion": filters.get("operation"),   # 👈 CLAVE
+            "operacion": filters.get("operation"),
             "precio_max": filters.get("price_max"),
             "amenities": filters.get("amenities"),
         }
 
-                    results = search_properties(**mapped_filters)
+        # 🔍 Búsqueda real
+        results = search_properties(**mapped_filters)
 
-            summary = explain_results(
-                query=req.message,
-                filters=mapped_filters,
-                results=results
-            )
+        # 🧠 Explicación inteligente post-búsqueda
+        summary = explain_results(
+            query=req.message,
+            filters=mapped_filters,
+            results=results,
+        )
 
-            return {
-                "type": "results",
-                "summary": summary,   # 👈 NUEVO
-                "count": len(results),
-                "results": results,
-                "filters": mapped_filters,
-            }
+        return {
+            "type": "results",
+            "summary": summary,
+            "count": len(results),
+            "results": results,
+            "filters": mapped_filters,
+        }
 
     # 🔴 CASO: ERROR / FALLBACK
     return {
