@@ -2,33 +2,38 @@ import json
 from pathlib import Path
 from openai import OpenAI
 
-# Ruta al prompt
-PROMPT_PATH = Path("prompts/interpretar_busqueda.md")
-
-# Cliente OpenAI (usa la API key del entorno)
+# Cliente OpenAI (usa OPENAI_API_KEY del entorno)
 client = OpenAI()
 
+# Cargar prompt desde archivo
+PROMPT_PATH = Path("prompts/interpretar_busqueda.md")
+SYSTEM_PROMPT = PROMPT_PATH.read_text(encoding="utf-8")
+
+
 def interpret_message(text: str) -> dict:
-    text_l = text.lower()
+    try:
+        response = client.responses.create(
+            model="gpt-4o-mini",
+            input=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": text},
+            ],
+            text={
+                "format": {
+                    "type": "json"
+                }
+            }
+        )
 
-    filters = {
-        "operation": "arriendo" if "arriendo" in text_l else ("venta" if "venta" in text_l else None),
-        "property_type": "casa" if "casa" in text_l else ("departamento" if "depto" in text_l or "departamento" in text_l else None),
-        "comuna": "La Reina" if "la reina" in text_l else None,
-        "price_max": None,
-    }
+        return json.loads(response.output_text)
 
-    missing = [k for k, v in filters.items() if v is None]
-
-    if missing:
+    except Exception as e:
+        # Fallback defensivo (NUNCA romper el assistant)
         return {
             "action": "ask",
-            "message": f"Me falta: {', '.join(missing)}. ¿Me lo indicas?",
-            "missing_fields": missing,
-            "filters_partial": filters
+            "message": "Tuve un problema interpretando el mensaje. ¿Puedes reformularlo?",
+            "missing_fields": [],
+            "filters_partial": {},
+            "error": str(e),
         }
 
-    return {
-        "action": "search",
-        "filters": filters
-    }
