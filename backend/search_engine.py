@@ -1,163 +1,150 @@
-import json
 from pathlib import Path
+import json
+import unicodedata
+from typing import List, Dict, Optional
 
 # =========================
-# CONFIG
+# PATHS (estructura real)
 # =========================
+# Repo:
+# project-root/
+# ├── backend/
+# │   └── search_engine.py
+# └── data/
+#     └── sources/
+#         └── *.json
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_SOURCES_DIR = BASE_DIR / "data" / "sources"
-
-# UF de referencia (luego se puede conectar a API real)
-UF_REFERENCIA = 37000
 
 
 # =========================
 # UTILIDADES
 # =========================
 
-def uf_to_clp(uf_value) -> int | None:
+def normalize_text(text: Optional[str]) -> Optional[str]:
+    if not text:
+        return None
+    text = str(text).lower().strip()
+    return "".join(
+        c for c in unicodedata.normalize("NFD", text)
+        if unicodedata.category(c) != "Mn"
+    )
+
+
+def safe_int(value) -> Optional[int]:
     try:
-        return int(float(uf_value) * UF_REFERENCIA)
+        return int(float(value))
     except Exception:
         return None
 
 
-def normalize_price(p: dict, operacion: str | None) -> int | None:
-    """
-    Decide el precio correcto según la estructura Nexxos:
-    - Venta / Arriendo = Sí / No
-    - Precio en CLP o UF
-    """
-
-    if not operacion:
-        return None
-
-    # Normalizar valores texto
-    venta = str(p.get("Venta", "")).strip().lower()
-    arriendo = str(p.get("Arriendo", "")).strip().lower()
-
-    # -----------------------
-    # ARRIENDO
-    # -----------------------
-    if operacion == "arriendo" and arriendo == "si":
-        if p.get("Precio Arriendo CLP"):
-            return int(p["Precio Arriendo CLP"])
-        if p.get("Precio Arriendo UF"):
-            return uf_to_clp(p["Precio Arriendo UF"])
-
-    # -----------------------
-    # VENTA
-    # -----------------------
-    if operacion == "venta" and venta == "si":
-        if p.get("Precio Venta CLP"):
-            return int(p["Precio Venta CLP"])
-        if p.get("Precio Venta UF"):
-            return uf_to_clp(p["Precio Venta UF"])
-
-    return None
-
-
-def build_property_url(p: dict) -> str | None:
-    source = p.get("source")
-    codigo = p.get("Codigo") or p.get("codigo")
-
-    if source == "nexxos" and codigo:
-        return f"https://nexxospropiedades.cl/fichaPropiedad.aspx?i={codigo}"
-
-    return None
-
-
 # =========================
-# CARGA DE DATOS
+# CARGA DE DATA
 # =========================
 
-def load_properties():
-    properties = []
+def load_properties() -> List[Dict]:
+    properties: List[Dict] = []
+
+    print("BASE_DIR:", BASE_DIR)
+    print("DATA_SOURCES_DIR:", DATA_SOURCES_DIR)
+    print("EXISTS:", DATA_SOURCES_DIR.exists())
 
     if not DATA_SOURCES_DIR.exists():
         return properties
 
     for file in DATA_SOURCES_DIR.glob("*.json"):
-        source_name = file.stem
-        data = json.loads(file.read_text(encoding="utf-8"))
+        try:
+            with open(file, "r", encoding="utf-8") as f:
+                data = json.load(f)
 
-        for p in data:
-            p["source"] = source_name
-            properties.append(p)
+                if not isinstance(data, list):
+                    print(f"WARNING: {file.name} no es una lista")
+                    continue
 
+                for p in data:
+                    if isinstance(p, dict):
+                        p["_source"] = file.stem
+                        properties.append(p)
+        except Exception as e:
+            print(f"ERROR loading {file.name}:", e)
+
+    print("TOTAL PROPERTIES LOADED:", len(properties))
     return properties
 
 
-# =========================
-# MATCHERS
-# =========================
-
-def match_comuna(p, comuna):
-    if not comuna:
-        return True
-    return comuna.lower() in str(p.get("Comuna", "")).lower()
-
-
-def match_operacion(p, operacion):
-    if not operacion:
-        return True
-
-    if operacion == "venta":
-        return str(p.get("Venta", "")).lower() == "si"
-
-    if operacion == "arriendo":
-        return str(p.get("Arriendo", "")).lower() == "si"
-
-    return False
+ALL_PROPERTIES: List[Dict] = load_properties()
 
 
 # =========================
-# SEARCH ENGINE
+# BUSCADOR PRINCIPAL
 # =========================
 
 def search_properties(
-    comuna: str | None = None,
-    operacion: str | None = None,
-    precio_max: int | None = None,
-    limit: int = 10,
-):
-    properties = load_properties()
-    results = []
+    comuna: Optional[str] = None,
+    operacion: Optional[str] = None,
+    precio_max: Optional[int] = None,
+    amenities: Optional[List[str]] = None,
+) -> List[Dict]:
 
-    for p in properties:
-        # Filtro comuna
-        if not match_comuna(p, comuna):
-            continue
+    results: List[Dict] = []
 
-        # Filtro operación
-        if not match_operacion(p, operacion):
-            continue
+    comuna_n = normalize_text(comuna)
+    operacion_n = normalize_text(operacion)
 
-        # Normalizar precio según operación
-        precio = normalize_price(p, operacion)
+    for p in ALL_PROPERTIES:
 
-        # Si hay presupuesto, validar
+        # -----------------
+        # COMUNA
+        # -----------------
+        if comuna_n:
+            p_comuna = normalize_text(
+                p.get("Comuna") or
+                p.get("comuna") or
+                p.get("COMUNA")
+            )
+            if p_comuna != comuna_n:
+                continue
+
+        # -----------------
+        # OPERACIÓN
+        # -----------------
+        if operacion_n:
+            venta = normalize_text(p.get("Venta"))
+            arriendo = normalize_text(p.get("Arriendo"))
+
+            if operacion_n == "venta" and venta != "si":
+                continue
+            if operacion_n == "arriendo" and arriendo != "si":
+                continue
+
+        # -----------------
+        # PRECIO
+        # -----------------
         if precio_max is not None:
-        # si no logro determinar precio, NO filtro
-        if precio is not None and precio > precio_max:
-        continue
+            precio = (
+                p.get("Precio") or
+                p.get("precio") or
+                p.get("Precio CLP")
+            )
 
+            precio_i = safe_int(precio)
+            if precio_i is None:
+                continue
 
-        # 👉 NORMALIZACIÓN FINAL PARA FRONTEND
-        p_out = {
-            "titulo": p.get("Titulo") or "Propiedad",
-            "comuna": p.get("Comuna"),
-            "precio": precio,
-            "dormitorios": p.get("Dormitorios"),
-            "banos": p.get("Baños") or p.get("Banos"),
-            "source": p.get("source"),
-            "url": build_property_url(p),
-        }
+            if precio_i > precio_max:
+                continue
 
-        results.append(p_out)
+        # -----------------
+        # AMENITIES (básico)
+        # -----------------
+        if amenities:
+            descripcion = normalize_text(
+                p.get("Descripcion") or p.get("descripcion")
+            ) or ""
+            if not all(normalize_text(a) in descripcion for a in amenities):
+                continue
 
-        if len(results) >= limit:
-            break
+        results.append(p)
 
     return results
