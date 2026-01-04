@@ -48,7 +48,8 @@ class SearchRequest(BaseModel):
 # DATA
 # ======================================================
 
-DATA_PATH = Path("data/propiedades.json")
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_PATH = BASE_DIR / "data" / "propiedades.json"
 
 
 def load_properties():
