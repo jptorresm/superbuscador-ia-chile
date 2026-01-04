@@ -1,4 +1,5 @@
 import json
+import re
 from openai import OpenAI
 
 client = OpenAI()
@@ -24,8 +25,30 @@ Reglas:
 - Si tienes suficiente información para buscar, action = "search".
 - Si falta información clave, action = "ask" y completa missing_fields.
 - Si el usuario menciona una comuna conocida de Chile, interprétala correctamente.
-- Si el usuario menciona precios como "2 MM", "2 millones", "2000000", conviértelos a entero CLP.
+- NO expliques nada, solo devuelve JSON.
 """
+
+# 🔢 Normalización determinística de precios
+def normalize_price(text: str) -> int | None:
+    t = text.lower()
+
+    # 2 MM, 2mm, 2 millones
+    mm_match = re.search(r'(\d+(?:[.,]\d+)?)\s*(mm|millones|millon)', t)
+    if mm_match:
+        value = float(mm_match.group(1).replace(",", "."))
+        return int(value * 1_000_000)
+
+    # $2.000.000 o 2.000.000
+    money_match = re.search(r'\$?\s*(\d{1,3}(?:[.,]\d{3})+)', t)
+    if money_match:
+        return int(
+            money_match.group(1)
+            .replace(".", "")
+            .replace(",", "")
+        )
+
+    return None
+
 
 def interpret_message(text: str) -> dict:
     try:
@@ -42,10 +65,14 @@ def interpret_message(text: str) -> dict:
         content = completion.choices[0].message.content
         data = json.loads(content)
 
-        # Normalización defensiva
         action = data.get("action")
         filters = data.get("filters", {}) or {}
         missing = data.get("missing_fields", []) or []
+
+        # 🔒 Refuerzo backend: precio desde el texto original
+        price_from_text = normalize_price(text)
+        if price_from_text:
+            filters["price_max"] = price_from_text
 
         if action == "ask":
             return {
