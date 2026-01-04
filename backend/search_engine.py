@@ -8,7 +8,7 @@ from typing import Optional, List, Dict
 # =========================
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_SOURCES_DIR = BASE_DIR / "data" / "sources"
+ENRICHED_DATA_PATH = BASE_DIR / "data" / "enriched" / "nexxos_enriched.json"
 
 
 # =========================
@@ -60,34 +60,23 @@ def pick_first(d: dict, keys: List[str]):
 # CARGA DE PROPIEDADES
 # =========================
 
-def load_properties() -> List[Dict]:
-    properties: List[Dict] = []
+def load_properties():
+    print("ENRICHED_DATA_PATH:", ENRICHED_DATA_PATH)
+    print("EXISTS:", ENRICHED_DATA_PATH.exists())
 
-    print("DATA_SOURCES_DIR:", DATA_SOURCES_DIR)
-    print("EXISTS:", DATA_SOURCES_DIR.exists())
+    if not ENRICHED_DATA_PATH.exists():
+        return []
 
-    if not DATA_SOURCES_DIR.exists():
-        return properties
+    try:
+        with open(ENRICHED_DATA_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, list):
+                print("TOTAL ENRICHED PROPERTIES:", len(data))
+                return data
+    except Exception as e:
+        print("ERROR loading enriched data:", e)
 
-    for file in DATA_SOURCES_DIR.glob("*.json"):
-        try:
-            with open(file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-
-                if not isinstance(data, list):
-                    continue
-
-                for p in data:
-                    if isinstance(p, dict):
-                        p["_source"] = file.stem
-                        properties.append(p)
-
-        except Exception as e:
-            print(f"ERROR loading {file.name}:", e)
-
-    print("TOTAL PROPERTIES LOADED:", len(properties))
-    return properties
-
+    return []
 
 ALL_PROPERTIES: List[Dict] = load_properties()
 
