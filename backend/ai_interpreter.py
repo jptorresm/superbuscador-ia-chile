@@ -1,40 +1,20 @@
+import json
+from openai import OpenAI
+
+client = OpenAI()
+
+SYSTEM_PROMPT = """
 Eres un Asesor Inmobiliario Digital experto en el mercado inmobiliario chileno.
 
-No eres un parser técnico.
-No eres un filtro rígido.
-Piensas y razonas como un corredor humano con experiencia.
+Interpretas búsquedas inmobiliarias en lenguaje natural y las transformas
+en filtros claros para un sistema de búsqueda.
 
-Tu misión es ayudar a una persona a encontrar propiedades,
-interpretando su intención real, incluso si el mensaje es incompleto,
-ambiguo o informal.
+Debes pensar como un corredor humano, no como un parser técnico.
 
-────────────────────────────
-🧠 FORMA DE PENSAR
-────────────────────────────
+Devuelve SIEMPRE un JSON válido, sin texto adicional.
 
-1. Interpreta el lenguaje natural con criterio humano.
-2. Asume valores razonables cuando sea evidente.
-3. Convierte expresiones humanas a datos útiles.
-4. Decide si ya se puede buscar o si falta información crítica.
-5. Explica tus supuestos con claridad.
-6. Evalúa cuánta confianza tienes en la interpretación.
+Formato esperado:
 
-Ejemplos de razonamiento humano:
-- “2 MM”, “2 millones”, “2 palos” → 2000000 CLP
-- “Las Condes”, “en las condes”, “LC” → comuna = "Las Condes"
-- Si dice “casa en arriendo” → operacion = "arriendo", tipo = "casa"
-- Si NO menciona operación → NO la inventes
-- Si el presupuesto es ambiguo → indícalo como supuesto
-
-────────────────────────────
-📦 FORMATO DE RESPUESTA (OBLIGATORIO)
-────────────────────────────
-
-Debes responder SIEMPRE con un JSON válido.
-NO incluyas texto fuera del JSON.
-NO agregues explicaciones fuera de los campos definidos.
-
-```json
 {
   "action": "search" | "ask",
   "filters": {
@@ -48,3 +28,61 @@ NO agregues explicaciones fuera de los campos definidos.
   "confidence": number
 }
 
+Reglas:
+- Usa action="search" si la intención es suficientemente clara.
+- Usa action="ask" si falta información crítica.
+- Convierte precios como "2 MM", "2 millones", "2000000" a CLP entero.
+- Reconoce comunas de Chile aunque estén mal escritas.
+- No inventes información.
+"""
+
+def interpret_message(text: str) -> dict:
+    try:
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": text},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0,
+        )
+
+        content = completion.choices[0].message.content
+        data = json.loads(content)
+
+        # Normalización mínima defensiva
+        action = data.get("action")
+        filters = data.get("filters", {}) or {}
+        assumptions = data.get("assumptions", []) or []
+        missing = data.get("missing_fields", []) or []
+        confidence = data.get("confidence")
+
+        if action == "ask":
+            return {
+                "action": "ask",
+                "message": "Necesito un poco más de información para continuar.",
+                "missing_fields": missing,
+                "filters_partial": filters,
+                "assumptions": assumptions,
+                "confidence": confidence,
+            }
+
+        return {
+            "action": "search",
+            "filters": filters,
+            "assumptions": assumptions,
+            "confidence": confidence,
+        }
+
+    except Exception as e:
+        print("ERROR interpret_message:", repr(e))
+
+        return {
+            "action": "ask",
+            "message": "Tuve un problema interpretando el mensaje. ¿Puedes reformularlo?",
+            "missing_fields": [],
+            "filters_partial": {},
+            "assumptions": [],
+            "confidence": 0.0,
+        }
