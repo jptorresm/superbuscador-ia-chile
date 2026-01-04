@@ -124,18 +124,7 @@ def root():
 @app.post("/search")
 def search_properties(req: SearchRequest):
     try:
-        properties = sanitize(load_properties())
-
-        # IA solo si viene texto
-        if req.query:
-            try:
-                ia = interpret_query(req.query)
-                req.comuna = req.comuna or ia.get("comuna")
-                req.operacion = req.operacion or ia.get("operacion")
-                req.precio_max = req.precio_max or ia.get("precio_max")
-                req.amenities = req.amenities or ia.get("amenities")
-            except Exception as e:
-                print("IA error:", e)
+        properties = load_properties()
 
         results = []
         for p in properties:
@@ -151,18 +140,12 @@ def search_properties(req: SearchRequest):
 
         return {
             "query": req.query,
-            "filters_applied": {
-                "comuna": req.comuna,
-                "operacion": req.operacion,
-                "precio_max": req.precio_max,
-                "amenities": req.amenities,
-            },
             "total": len(results),
             "results": results[:10],
         }
 
     except Exception as e:
-        # 🔥 ESTO GARANTIZA CORS INCLUSO EN ERROR
+        # 👇 CLAVE: devolver el error real
         return {
             "error": "internal_error",
             "message": str(e),
