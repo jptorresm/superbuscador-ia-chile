@@ -61,14 +61,20 @@ def interpret_message(text: str) -> dict:
             },
         )
 
-        # 🔑 Forma correcta de extraer el JSON
-        # Responses API devuelve una lista estructurada en resp.output
+        # 🔑 Extracción ROBUSTA del JSON desde Responses API
         for item in resp.output:
-            if item["type"] == "output_text":
+            # Caso 1: output_text directo
+            if item.get("type") == "output_text" and "text" in item:
                 return json.loads(item["text"])
 
-        # Si no encontramos output_text válido
-        raise ValueError("No JSON output_text found in OpenAI response")
+            # Caso 2: message → content → output_text
+            if item.get("type") == "message":
+                for part in item.get("content", []):
+                    if part.get("type") == "output_text" and "text" in part:
+                        return json.loads(part["text"])
+
+        # Si llegamos aquí, OpenAI respondió pero no con JSON usable
+        raise ValueError("No valid JSON found in OpenAI response output")
 
     except Exception as e:
         print("ERROR interpret_message:", repr(e))
