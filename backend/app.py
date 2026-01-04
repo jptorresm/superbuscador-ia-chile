@@ -155,16 +155,15 @@ def search_properties(req: SearchRequest):
             results.append(p)
 
         response = {
-    "query": req.query,
-    "total": len(results),
-    "results": results[:10],
-}
+            "query": req.query,
+            "total": len(results),
+            "results": results[:10],
+        }
 
-return clean_for_json(response)
-
+        return clean_for_json(response)
 
     except Exception as e:
-        # 👇 CLAVE: devolver el error real
+        # 👇 NUNCA romper JSON ni CORS
         return {
             "error": "internal_error",
             "message": str(e),
