@@ -14,6 +14,13 @@ class AssistantRequest(BaseModel):
 
 @router.post("/assistant")
 def assistant(req: AssistantRequest):
+    """
+    Endpoint IA-first:
+    - La IA interpreta
+    - El sistema ejecuta
+    - La IA explica
+    """
+
     decision = interpret_message(req.message)
     action = decision.get("action")
 
@@ -24,40 +31,37 @@ def assistant(req: AssistantRequest):
             "message": decision.get("message"),
             "missing_fields": decision.get("missing_fields", []),
             "filters_partial": decision.get("filters_partial", {}),
+            "confidence": decision.get("confidence"),
         }
 
     # 🟢 CASO: BUSCAR
     if action == "search":
         filters = decision.get("filters", {}) or {}
 
-        # 🔁 Mapear filtros IA → search_engine
-        mapped_filters = {
-            "comuna": filters.get("comuna"),
-            "operacion": filters.get("operation"),
-            "precio_max": filters.get("price_max"),
-            "amenities": filters.get("amenities"),
-        }
+        # Ejecutar búsqueda (el sistema NO piensa)
+        results = search_properties(**filters)
 
-        # 🔍 Búsqueda real
-        results = search_properties(**mapped_filters)
-
-        # 🧠 Explicación inteligente post-búsqueda
+        # Explicación IA (valor diferencial)
         summary = explain_results(
             query=req.message,
-            filters=mapped_filters,
+            filters=filters,
             results=results,
+            assumptions=decision.get("assumptions", []),
+            confidence=decision.get("confidence"),
         )
 
         return {
             "type": "results",
             "summary": summary,
+            "confidence": decision.get("confidence"),
+            "assumptions": decision.get("assumptions", []),
+            "filters": filters,
             "count": len(results),
             "results": results,
-            "filters": mapped_filters,
         }
 
-    # 🔴 CASO: ERROR / FALLBACK
+    # 🔴 FALLBACK (nunca debería pasar)
     return {
         "type": "error",
-        "message": decision.get("message", "No pude procesar la solicitud"),
+        "message": "No pude procesar la solicitud.",
     }
