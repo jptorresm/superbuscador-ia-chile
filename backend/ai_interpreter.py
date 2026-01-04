@@ -1,54 +1,57 @@
 import json
-import re
 from openai import OpenAI
 
 client = OpenAI()
 
 SYSTEM_PROMPT = """
-Eres un asistente que interpreta búsquedas inmobiliarias en Chile.
+Eres un asistente experto en interpretación de búsquedas inmobiliarias en Chile.
 
-Debes devolver SIEMPRE un JSON válido, sin texto adicional.
+Tu tarea es interpretar lo que el usuario quiere buscar y transformar su mensaje
+en una instrucción clara y ejecutable para un sistema de búsqueda de propiedades.
 
-Formato esperado:
+Debes pensar como un asesor inmobiliario humano, no como un parser técnico.
+
+---
+
+OBJETIVO
+
+Dado un mensaje en lenguaje natural, debes:
+
+1. Entender la intención real del usuario
+2. Inferir correctamente los filtros de búsqueda
+3. Asumir valores razonables cuando sea posible
+4. Explicar tus supuestos
+5. Decidir si se puede buscar o si falta información crítica
+
+---
+
+FORMATO DE RESPUESTA (OBLIGATORIO)
+
+Debes responder SIEMPRE con un JSON válido, sin texto adicional fuera del JSON.
+
 {
   "action": "search" | "ask",
   "filters": {
-    "operation": "venta" | "arriendo" | null,
-    "property_type": "casa" | "departamento" | null,
+    "operacion": "venta" | "arriendo" | null,
+    "tipo": "casa" | "departamento" | null,
     "comuna": string | null,
-    "price_max": number | null
+    "precio_max": number | null
   },
-  "missing_fields": [string]
+  "assumptions": [string],
+  "missing_fields": [string],
+  "confidence": number
 }
 
-Reglas:
-- Si tienes suficiente información para buscar, action = "search".
-- Si falta información clave, action = "ask" y completa missing_fields.
-- Si el usuario menciona una comuna conocida de Chile, interprétala correctamente.
-- NO expliques nada, solo devuelve JSON.
+---
+
+REGLAS IMPORTANTES
+
+- Si tienes información suficiente para buscar, usa action = "search"
+- Si falta información crítica (por ejemplo operación o comuna), usa action = "ask"
+- Interpreta precios como "2 MM", "2 millones", "2.000.000" como pesos chilenos
+- Prefiere asumir de forma razonable antes que bloquear
+- Registra todos los supuestos relevantes en "assumptions"
 """
-
-# 🔢 Normalización determinística de precios
-def normalize_price(text: str) -> int | None:
-    t = text.lower()
-
-    # 2 MM, 2mm, 2 millones
-    mm_match = re.search(r'(\d+(?:[.,]\d+)?)\s*(mm|millones|millon)', t)
-    if mm_match:
-        value = float(mm_match.group(1).replace(",", "."))
-        return int(value * 1_000_000)
-
-    # $2.000.000 o 2.000.000
-    money_match = re.search(r'\$?\s*(\d{1,3}(?:[.,]\d{3})+)', t)
-    if money_match:
-        return int(
-            money_match.group(1)
-            .replace(".", "")
-            .replace(",", "")
-        )
-
-    return None
-
 
 def interpret_message(text: str) -> dict:
     try:
@@ -65,26 +68,23 @@ def interpret_message(text: str) -> dict:
         content = completion.choices[0].message.content
         data = json.loads(content)
 
+        # Validación mínima (infraestructura, no lógica)
         action = data.get("action")
         filters = data.get("filters", {}) or {}
-        missing = data.get("missing_fields", []) or []
-
-        # 🔒 Refuerzo backend: precio desde el texto original
-        price_from_text = normalize_price(text)
-        if price_from_text:
-            filters["price_max"] = price_from_text
 
         if action == "ask":
             return {
                 "action": "ask",
-                "message": "Me falta información para continuar.",
-                "missing_fields": missing,
+                "message": "Necesito un poco más de información para continuar.",
+                "missing_fields": data.get("missing_fields", []),
                 "filters_partial": filters,
             }
 
         return {
             "action": "search",
             "filters": filters,
+            "assumptions": data.get("assumptions", []),
+            "confidence": data.get("confidence", 0.5),
         }
 
     except Exception as e:
@@ -96,3 +96,4 @@ def interpret_message(text: str) -> dict:
             "missing_fields": [],
             "filters_partial": {},
         }
+
