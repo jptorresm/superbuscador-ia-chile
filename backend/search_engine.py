@@ -138,9 +138,11 @@ def search_properties(
         precio = normalize_price(p, operacion)
 
         # Si hay presupuesto, validar
-        if precio_max and precio:
-            if precio > precio_max:
-                continue
+        if precio_max is not None:
+        # si no logro determinar precio, NO filtro
+        if precio is not None and precio > precio_max:
+        continue
+
 
         # 👉 NORMALIZACIÓN FINAL PARA FRONTEND
         p_out = {
