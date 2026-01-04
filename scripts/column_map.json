@@ -1,0 +1,21 @@
+{
+  "codigo": ["Código"],
+  "estado": ["Estado"],
+  "operacion": ["En Venta"],
+  "tipo_propiedad": ["Tipo Propiedad"],
+  "precio": ["Precio"],
+  "moneda": ["Divisa ppal."],
+  "gastos_comunes": ["Gastos Comunes"],
+  "comuna": ["Comuna"],
+  "sector": ["Sector"],
+  "region": ["Región"],
+  "dormitorios": ["Dormitorios"],
+  "banos": ["Baños"],
+  "estacionamientos": ["Estacionamientos"],
+  "superficie_total": ["Sup. Terreno"],
+  "superficie_construida": ["Sup. Construida"],
+  "descripcion": ["Descripción", "Observaciones", "Detalle"],
+  "exclusiva": ["Exclusiva"],
+  "destacada": ["Destacada"],
+  "publicada_web": ["En web y portales"]
+}
