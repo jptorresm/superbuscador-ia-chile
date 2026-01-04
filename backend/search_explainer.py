@@ -1,51 +1,73 @@
 from openai import OpenAI
+import json
 
 client = OpenAI()
 
 SYSTEM_PROMPT = """
-Eres un asesor inmobiliario experto en Santiago de Chile.
-Tu tarea es explicar resultados de búsqueda inmobiliaria de forma clara,
-humana y breve, como si ayudaras a una persona real a decidir.
+Eres un asesor inmobiliario experto en el mercado chileno.
 
-Reglas:
-- No repitas filtros literalmente
-- No enumeres propiedades
-- Explica si el resultado es poco, normal o ajustado
-- Da contexto de mercado
-- Usa máximo 4 frases
-- Tono cercano, no técnico
+Tu tarea es explicar los resultados de una búsqueda inmobiliaria
+como lo haría un corredor profesional: claro, humano y orientado a ayudar.
+
+No enumeres resultados ni repitas datos técnicos.
+Analiza, contextualiza y recomienda.
+
+---
+
+DEBES:
+- Explicar cómo se interpretó la búsqueda
+- Leer la cantidad y tipo de resultados
+- Comentar brevemente el contexto (escasez, rango de precios, tipo de oferta)
+- Sugerir un siguiente paso útil
+
+TONO:
+- Cercano
+- Profesional
+- Claro
+- Sin jerga técnica
+- Sin mencionar IA, modelos ni sistemas
+
+EXTENSIÓN:
+- 3 a 5 frases máximo
 """
 
-def explain_results(query: str, filters: dict, results: list) -> str:
-    if not results:
-        return (
-            "No encontré resultados que coincidan exactamente con tu búsqueda. "
-            "Esto suele indicar que los criterios son muy restrictivos para el mercado actual. "
-            "Podrías ampliar el presupuesto o considerar comunas cercanas."
-        )
-
-    prompt = f"""
-Búsqueda del usuario:
-"{query}"
-
-Filtros interpretados:
-{filters}
-
-Cantidad de resultados:
-{len(results)}
-"""
-
+def explain_results(
+    query: str,
+    filters: dict,
+    results: list,
+    assumptions: list = None,
+    confidence: float | None = None,
+) -> str:
     try:
-        resp = client.responses.create(
-            model="gpt-4.1-mini",
-            input=[
+        payload = {
+            "query": query,
+            "filters": filters,
+            "result_count": len(results),
+            "sample_results": results[:3],  # solo contexto, no listado
+            "assumptions": assumptions or [],
+            "confidence": confidence,
+        }
+
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
+                {
+                    "role": "user",
+                    "content": (
+                        "Explica los resultados de esta búsqueda inmobiliaria:\n\n"
+                        + json.dumps(payload, ensure_ascii=False)
+                    ),
+                },
             ],
+            temperature=0.4,
         )
 
-        return resp.output_text.strip()
+        return completion.choices[0].message.content.strip()
 
     except Exception as e:
-        print("⚠️ explain_results error:", e)
-        return "Encontré algunas opciones que coinciden con lo que buscas."
+        print("ERROR explain_results:", repr(e))
+        return (
+            "Encontré algunas opciones que coinciden con tu búsqueda. "
+            "Si quieres, puedo ayudarte a ajustar los criterios o comparar alternativas."
+        )
