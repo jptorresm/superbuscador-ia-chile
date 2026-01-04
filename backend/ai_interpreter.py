@@ -8,23 +8,27 @@ PROMPT_PATH = Path("prompts/interpretar_busqueda.md")
 # Cliente OpenAI (usa la API key del entorno)
 client = OpenAI()
 
-def interpret_query(query: str) -> dict:
-    """
-    Toma una búsqueda en texto libre y devuelve
-    un diccionario con filtros estructurados.
-    """
-    system_prompt = PROMPT_PATH.read_text(encoding="utf-8")
+def interpret_message(text: str) -> dict:
+    text_l = text.lower()
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": query}
-        ],
-        temperature=0
-    )
+    filters = {
+        "operation": "arriendo" if "arriendo" in text_l else ("venta" if "venta" in text_l else None),
+        "property_type": "casa" if "casa" in text_l else ("departamento" if "depto" in text_l or "departamento" in text_l else None),
+        "comuna": "La Reina" if "la reina" in text_l else None,
+        "price_max": None,
+    }
 
-    content = response.choices[0].message.content
+    missing = [k for k, v in filters.items() if v is None]
 
-    # Convertimos el texto JSON a dict Python
-    return json.loads(content)
+    if missing:
+        return {
+            "action": "ask",
+            "message": f"Me falta: {', '.join(missing)}. ¿Me lo indicas?",
+            "missing_fields": missing,
+            "filters_partial": filters
+        }
+
+    return {
+        "action": "search",
+        "filters": filters
+    }
