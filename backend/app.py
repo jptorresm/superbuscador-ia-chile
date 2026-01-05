@@ -2,7 +2,7 @@ print("🔥 APP STARTING — app.py cargado", flush=True)
 import subprocess
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 print("🔥 Ejecutando enriquecimiento", flush=True)
 
