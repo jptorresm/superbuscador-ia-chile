@@ -1,131 +1,131 @@
 import re
 
-
 # =========================
-# CONFIGURACIÓN
+# CONFIGURACIÓN BASE
 # =========================
 
-OPERADORES_VALIDOS = [
+CAMPOS_REQUERIDOS = [
     "comuna",
     "operacion",
-    "precio_min_uf",
-    "precio_max_uf",
-    "precio_min_clp",
-    "precio_max_clp",
-    "dormitorios_min",
-    "banos_min",
-    "amenities",
 ]
 
+# Preguntas específicas por campo
+PREGUNTAS = {
+    "comuna": "¿En qué comuna buscas la propiedad?",
+    "operacion": "¿La buscas en venta o en arriendo?",
+    "precio_max_clp": "¿Cuál es tu presupuesto máximo en pesos?",
+    "precio_max_uf": "¿Cuál es tu presupuesto máximo en UF?",
+}
 
 # =========================
-# UTILIDADES
+# EXTRACCIÓN BÁSICA
 # =========================
 
-def find_number(text):
-    match = re.search(r"(\d{1,3}(?:[\.,]\d{3})+|\d+)", text)
-    if not match:
-        return None
-    return int(match.group(1).replace(".", "").replace(",", ""))
+def extraer_comuna(texto: str):
+    comunas = [
+        "providencia", "las condes", "vitacura", "ñuñoa",
+        "la reina", "santiago", "macul", "peñalolén"
+    ]
+    for c in comunas:
+        if c in texto:
+            return c.title()
+    return None
 
 
-def normalize_text(text: str) -> str:
-    return text.lower().strip()
+def extraer_operacion(texto: str):
+    if "arriendo" in texto or "arrendar" in texto:
+        return "arriendo"
+    if "venta" in texto or "vender" in texto:
+        return "venta"
+    return None
+
+
+def extraer_precio(texto: str):
+    """
+    Detecta precios tipo:
+    - 900.000
+    - 900000
+    - 900 mil
+    - 10.000 uf
+    """
+    texto = texto.lower()
+
+    # UF
+    match_uf = re.search(r"([\d\.]+)\s*uf", texto)
+    if match_uf:
+        valor = match_uf.group(1).replace(".", "")
+        return {
+            "precio_max_uf": int(valor)
+        }
+
+    # CLP
+    match_clp = re.search(r"([\d\.]+)", texto)
+    if match_clp:
+        valor = match_clp.group(1).replace(".", "")
+        if len(valor) >= 5:
+            return {
+                "precio_max_clp": int(valor)
+            }
+
+    return {}
 
 
 # =========================
 # INTERPRETADOR PRINCIPAL
 # =========================
 
-def interpret_message(message: str) -> dict:
+def interpret_message(message: str, contexto_anterior: dict | None = None) -> dict:
     """
-    Interpreta lenguaje natural y decide:
-    - preguntar (ask)
-    - buscar (search)
+    Interpreta el mensaje del usuario de forma acumulativa.
     """
 
-    text = normalize_text(message)
-
-    filters = {}
-    missing_fields = []
+    texto = message.lower().strip()
+    filtros = contexto_anterior.copy() if contexto_anterior else {}
 
     # -------------------------
-    # OPERACIÓN
+    # EXTRAER INTENCIÓN
     # -------------------------
-    if "venta" in text:
-        filters["operacion"] = "venta"
-    elif "arriendo" in text or "alquiler" in text:
-        filters["operacion"] = "arriendo"
-    else:
-        missing_fields.append("operacion")
+
+    comuna = extraer_comuna(texto)
+    if comuna:
+        filtros["comuna"] = comuna
+
+    operacion = extraer_operacion(texto)
+    if operacion:
+        filtros["operacion"] = operacion
+
+    precio = extraer_precio(texto)
+    filtros.update(precio)
 
     # -------------------------
-    # COMUNA (simple, explícito)
+    # VALIDAR CAMPOS CLAVE
     # -------------------------
-    comunas = [
-        "las condes",
-        "vitacura",
-        "providencia",
-        "ñuñoa",
-        "la reina",
-        "lo barnechea",
-        "santiago",
-    ]
-    for comuna in comunas:
-        if comuna in text:
-            filters["comuna"] = comuna.title()
-            break
 
-    if "comuna" not in filters:
-        missing_fields.append("comuna")
+    faltantes = []
 
-    # -------------------------
-    # PRECIO
-    # -------------------------
-    number = find_number(text)
-
-    if number:
-        if "uf" in text:
-            if "min" in text or "desde" in text:
-                filters["precio_min_uf"] = number
-            elif "max" in text or "hasta" in text or "menos de" in text:
-                filters["precio_max_uf"] = number
-            else:
-                return {
-                    "action": "ask",
-                    "message": f"¿Ese precio ({number} UF) es mínimo o máximo?",
-                    "missing_fields": ["precio_rango"],
-                    "filters_partial": filters,
-                }
-
-        if "$" in text or "clp" in text or "pesos" in text:
-            if "min" in text or "desde" in text:
-                filters["precio_min_clp"] = number
-            elif "max" in text or "hasta" in text:
-                filters["precio_max_clp"] = number
-            else:
-                return {
-                    "action": "ask",
-                    "message": f"¿Ese precio (${number}) es mínimo o máximo?",
-                    "missing_fields": ["precio_rango"],
-                    "filters_partial": filters,
-                }
+    for campo in CAMPOS_REQUERIDOS:
+        if campo not in filtros:
+            faltantes.append(campo)
 
     # -------------------------
     # DECISIÓN FINAL
     # -------------------------
-    if missing_fields:
+
+    # Caso 1: faltan campos → preguntar algo CONCRETO
+    if faltantes:
+        campo = faltantes[0]
         return {
             "action": "ask",
-            "message": "Necesito un poco más de información para buscar correctamente.",
-            "missing_fields": missing_fields,
-            "filters_partial": filters,
+            "message": PREGUNTAS.get(
+                campo,
+                "¿Puedes darme un poco más de información?"
+            ),
+            "missing_fields": faltantes,
+            "filters_partial": filtros,
         }
 
-    # Limpiar filtros no válidos
-    filters = {k: v for k, v in filters.items() if k in OPERADORES_VALIDOS}
-
+    # Caso 2: ya tenemos lo mínimo → buscar
     return {
         "action": "search",
-        "filters": filters,
+        "filters": filtros
     }
