@@ -1,132 +1,83 @@
 import json
-import math
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Optional, Dict, Any
 
 # =========================
 # PATHS
 # =========================
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 ENRICHED_DATA_PATH = BASE_DIR / "data" / "enriched" / "nexxos_enriched.json"
 
-
 # =========================
-# UTILS
+# LOAD DATA
 # =========================
-def normalize_text(value: Optional[str]) -> Optional[str]:
-    if not value:
-        return None
-    return (
-        str(value)
-        .strip()
-        .lower()
-        .replace("á", "a")
-        .replace("é", "e")
-        .replace("í", "i")
-        .replace("ó", "o")
-        .replace("ú", "u")
-        .replace("ñ", "n")
-    )
 
-
-def sanitize_for_json(obj):
-    """
-    Reemplaza NaN / inf por None de forma recursiva
-    (JSON no soporta NaN)
-    """
-    if isinstance(obj, float):
-        if math.isnan(obj) or math.isinf(obj):
-            return None
-        return obj
-
-    if isinstance(obj, dict):
-        return {k: sanitize_for_json(v) for k, v in obj.items()}
-
-    if isinstance(obj, list):
-        return [sanitize_for_json(v) for v in obj]
-
-    return obj
-
-
-# =========================
-# LOAD DATA (SAFE)
-# =========================
 def load_properties() -> List[Dict[str, Any]]:
-    try:
-        print("ENRICHED_DATA_PATH:", ENRICHED_DATA_PATH)
-        print("EXISTS:", ENRICHED_DATA_PATH.exists())
+    if not ENRICHED_DATA_PATH.exists():
+        print(f"❌ ENRICHED_DATA_PATH no existe: {ENRICHED_DATA_PATH}")
+        return []
 
-        if not ENRICHED_DATA_PATH.exists():
-            return []
+    with open(ENRICHED_DATA_PATH, "r", encoding="utf-8") as f:
+        data = json.load(f)
 
-        with open(ENRICHED_DATA_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if isinstance(data, list):
-                print("TOTAL ENRICHED PROPERTIES:", len(data))
-                return data
-
-    except Exception as e:
-        print("❌ ERROR loading enriched data:", e)
-
-    return []
+    print(f"✅ TOTAL ENRICHED PROPERTIES: {len(data)}")
+    return data
 
 
-# ⚠️ IMPORTANTE:
-# La carga se hace una vez y NO debe romper el módulo
-ALL_PROPERTIES: List[Dict[str, Any]] = load_properties()
-
+PROPERTIES = load_properties()
 
 # =========================
-# MAIN SEARCH
+# PRICE SELECTION
 # =========================
+
+def get_price(
+    p: Dict[str, Any],
+    operacion: str,
+    moneda: Optional[str] = None,
+) -> Optional[float]:
+    """
+    Selecciona el precio correcto según:
+    - operación (venta / arriendo)
+    - moneda explícita u opcional
+    """
+
+    precio = p.get("precio", {})
+    block = precio.get(operacion)
+
+    if not block or not block.get("activo"):
+        return None
+
+    # Moneda explícita solicitada
+    if moneda:
+        return block.get(moneda.lower())
+
+    # Moneda por defecto
+    if operacion == "venta":
+        return block.get("uf")
+    if operacion == "arriendo":
+        return block.get("pesos")
+
+    return None
+
+# =========================
+# SEARCH ENGINE
+# =========================
+
 def search_properties(
     comuna: Optional[str] = None,
     operacion: Optional[str] = None,
-    precio_max: Optional[int] = None,  # reservado para paso siguiente
-    amenities: Optional[Dict[str, Any]] = None,
+    precio_max: Optional[float] = None,
+    moneda: Optional[str] = None,
+    amenities: Optional[List[str]] = None,
+    limit: int = 20,
 ) -> List[Dict[str, Any]]:
 
-    results: List[Dict[str, Any]] = []
+    results = []
 
-    comuna_n = normalize_text(comuna)
-    operacion_n = normalize_text(operacion)
-
-    for p in ALL_PROPERTIES:
+    for p in PROPERTIES:
 
         # -----------------------
-        # COMUNA (enriched)
+        # OPERACIÓN
         # -----------------------
-        if comuna_n:
-            p_comuna = normalize_text(
-                (p.get("ubicacion") or {}).get("comuna")
-            )
-            if p_comuna != comuna_n:
-                continue
-
-        # -----------------------
-        # OPERACION (enriched)
-        # -----------------------
-        if operacion_n:
-            if normalize_text(p.get("operacion")) != operacion_n:
-                continue
-
-        # -----------------------
-        # TIPO (enriched, opcional)
-        # -----------------------
-        filtro_tipo = None
-        if isinstance(amenities, dict):
-            filtro_tipo = normalize_text(amenities.get("tipo"))
-
-        if filtro_tipo:
-            if normalize_text(p.get("tipo")) != filtro_tipo:
-                continue
-
-        # -----------------------
-        # PASA FILTROS
-        # -----------------------
-        results.append(p)
-
-    # ⚠️ CRÍTICO:
-    # limpiar NaN antes de serializar a JSON
-    return sanitize_for_json(results)
-
+        if operacion:

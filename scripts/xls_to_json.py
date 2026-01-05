@@ -17,7 +17,7 @@ AMENITIES_KEYWORDS = {
     "amoblado": ["amoblado", "equipado"],
     "areas_verdes": ["áreas verdes", "jardín", "parque"],
     "ascensor": ["ascensor", "elevador"],
-    "conserjeria": ["conserjería", "conserje", "portero"]
+    "conserjeria": ["conserjería", "conserje", "portero"],
 }
 
 def clean_codigo(value):
@@ -36,7 +36,6 @@ def extract_amenities(text):
     text = str(text).lower().strip()
     if not text:
         return {}
-
     amenities = {}
     for amenity, keywords in AMENITIES_KEYWORDS.items():
         amenities[amenity] = any(
@@ -67,31 +66,39 @@ def main(excel_path: str):
     for _, row in df.iterrows():
         item = {}
 
-        # Copia campos según el mapeo
+        # -----------------------
+        # Copia campos mapeados (NO precios)
+        # -----------------------
         for field, possible_cols in column_map.items():
             col = find_column(df.columns, possible_cols)
             if col:
                 item[field] = row[col]
 
+        # -----------------------
         # Código (obligatorio)
+        # -----------------------
         codigo = clean_codigo(item.get("codigo"))
         if not codigo:
             continue
 
-        # Filtros de calidad mínimos
+        # -----------------------
+        # Filtros mínimos de calidad
+        # -----------------------
         if str(item.get("estado", "")).strip().lower() != "activa":
             continue
         if not to_bool(item.get("publicada_web")):
             continue
 
-        # Normalizaciones base + compatibilidad futura (multi-fuente)
+        # -----------------------
+        # Normalizaciones base
+        # -----------------------
         item["codigo"] = codigo
         item["id"] = f"nexxos-{codigo}"
         item["source"] = "nexxos"
         item["source_id"] = codigo
         item["link"] = f"{BASE_URL}{codigo}"
 
-        # Operación: En Venta = SI => venta, si no => arriendo
+        # Operación (flag Excel)
         item["operacion"] = "venta" if to_bool(item.get("operacion")) else "arriendo"
 
         # Flags
@@ -102,9 +109,46 @@ def main(excel_path: str):
         descripcion = item.get("descripcion", "")
         item["amenities"] = extract_amenities(descripcion)
 
+        # =========================
+        # PRECIOS (VENTA / ARRIENDO)
+        # =========================
+
+        # --- VENTA ---
+        en_venta = to_bool(row.get("En Venta"))
+        venta_divisa = str(row.get("Divisa ppal.")).strip() if en_venta else None
+        venta_precio_ppal = row.get("Precio ppal.") if en_venta else None
+        venta_precio_uf = row.get("Precio UF") if en_venta else None
+        venta_precio_pesos = row.get("Precio Pesos") if en_venta else None
+
+        # --- ARRIENDO ---
+        en_arriendo = to_bool(row.get("En Arriendo"))
+        arr_divisa = str(row.get("Divisa ppal.")).strip() if en_arriendo else None
+        arr_precio_ppal = row.get("Precio ppal.") if en_arriendo else None
+        arr_precio_uf = row.get("Precio UF") if en_arriendo else None
+        arr_precio_pesos = row.get("Precio Pesos") if en_arriendo else None
+
+        item["precio"] = {
+            "venta": {
+                "activo": en_venta,
+                "divisa": venta_divisa,
+                "principal": venta_precio_ppal,
+                "uf": venta_precio_uf,
+                "pesos": venta_precio_pesos,
+            },
+            "arriendo": {
+                "activo": en_arriendo,
+                "divisa": arr_divisa,
+                "principal": arr_precio_ppal,
+                "uf": arr_precio_uf,
+                "pesos": arr_precio_pesos,
+            },
+        }
+
         results.append(item)
 
+    # -----------------------
     # Output
+    # -----------------------
     output_path = Path("data/nexxos/properties.json")
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
