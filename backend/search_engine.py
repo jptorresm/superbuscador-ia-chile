@@ -235,7 +235,7 @@ def search_properties(
 
         # 💰 Normalizar precio para salida
         price_data = extract_price(prop)
-        prop["precio"] = price_data["precio"]
+        prop["precio_normalizado"] = price_data["precio"]
         prop["precio_moneda"] = price_data["precio_moneda"]
 
         results.append(clean_for_json(prop))
