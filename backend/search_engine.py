@@ -6,14 +6,11 @@ DATA_DIR = BASE_DIR / "data" / "sources"
 
 
 # =========================
-# CARGA DE FUENTES
+# CARGA DE FUENTES (SIN CACHE)
 # =========================
 
 def load_sources() -> list[dict]:
     properties = []
-
-    if not DATA_DIR.exists():
-        raise FileNotFoundError(f"No existe el directorio {DATA_DIR}")
 
     for file in DATA_DIR.glob("*.json"):
         with open(file, "r", encoding="utf-8") as f:
@@ -25,32 +22,30 @@ def load_sources() -> list[dict]:
     return properties
 
 
-ALL_PROPERTIES = load_sources()
-
-
 # =========================
 # FILTRO DE PRECIO
 # =========================
 
 def cumple_precio(prop: dict, filtros: dict) -> bool:
-    """
-    Usa SOLO precio_normalizado y precio_moneda.
-    Asume que vienen enriquecidos.
-    """
-
     precio = prop.get("precio_normalizado")
     moneda = prop.get("precio_moneda")
 
     if precio is None or moneda is None:
-        return True  # no descartamos si no hay precio
+        return True
 
-    # Venta en UF
-    if moneda == "UF" and filtros.get("precio_max_uf"):
-        return precio <= filtros["precio_max_uf"]
+    # UF
+    if moneda == "UF":
+        if filtros.get("precio_min_uf") is not None and precio < filtros["precio_min_uf"]:
+            return False
+        if filtros.get("precio_max_uf") is not None and precio > filtros["precio_max_uf"]:
+            return False
 
-    # CLP (venta o arriendo)
-    if moneda == "CLP" and filtros.get("precio_max_clp"):
-        return precio <= filtros["precio_max_clp"]
+    # CLP
+    if moneda == "CLP":
+        if filtros.get("precio_min_clp") is not None and precio < filtros["precio_min_clp"]:
+            return False
+        if filtros.get("precio_max_clp") is not None and precio > filtros["precio_max_clp"]:
+            return False
 
     return True
 
@@ -62,36 +57,35 @@ def cumple_precio(prop: dict, filtros: dict) -> bool:
 def search_properties(
     comuna: str | None = None,
     operacion: str | None = None,
+    precio_min_uf: int | None = None,
     precio_max_uf: int | None = None,
+    precio_min_clp: int | None = None,
     precio_max_clp: int | None = None,
     amenities: list[str] | None = None,
 ):
-    """
-    Búsqueda simple sobre data enriquecida.
-    """
+    # 🔑 Cargar SIEMPRE data actualizada
+    all_properties = load_sources()
 
     filtros = {
+        "precio_min_uf": precio_min_uf,
         "precio_max_uf": precio_max_uf,
+        "precio_min_clp": precio_min_clp,
         "precio_max_clp": precio_max_clp,
     }
 
     results = []
 
-    for prop in ALL_PROPERTIES:
+    for prop in all_properties:
 
-        # Comuna
         if comuna and prop.get("comuna", "").lower() != comuna.lower():
             continue
 
-        # Operación
         if operacion and prop.get("operacion") != operacion:
             continue
 
-        # Precio
         if not cumple_precio(prop, filtros):
             continue
 
-        # Amenities (AND lógico)
         if amenities:
             prop_amenities = prop.get("amenities", {})
             if not all(prop_amenities.get(a) is True for a in amenities):
