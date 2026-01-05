@@ -1,11 +1,26 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
+import math
 
 from backend.ai_interpreter import interpret_message
 from backend.search_engine import search_properties
 from backend.search_explainer import explain_results
 
 router = APIRouter(tags=["assistant"])
+
+
+# =========================
+# UTILIDAD JSON SAFE
+# =========================
+
+def clean_for_json(obj):
+    if isinstance(obj, dict):
+        return {k: clean_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [clean_for_json(v) for v in obj]
+    if isinstance(obj, float) and math.isnan(obj):
+        return None
+    return obj
 
 
 # =========================
@@ -97,11 +112,14 @@ def assistant(req: AssistantRequest):
         except Exception:
             summary = ""
 
+        # 🧼 LIMPIEZA JSON (FIX DEFINITIVO NaN)
+        clean_results = clean_for_json(results)
+
         return {
             "type": "results",
             "summary": summary,
-            "count": len(results),
-            "results": results,
+            "count": len(clean_results),
+            "results": clean_results,
             "filters": mapped_filters,
         }
 
