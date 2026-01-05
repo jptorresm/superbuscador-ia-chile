@@ -48,8 +48,9 @@ def to_int(value):
 
 def extract_price(prop: dict) -> dict:
     """
-    Extrae y normaliza el precio desde la estructura:
+    Extrae y normaliza el precio desde:
     prop["precio"]["venta" | "arriendo"]
+    usando flags 'activo' como fuente de verdad
     """
 
     def to_int(value):
@@ -68,18 +69,13 @@ def extract_price(prop: dict) -> dict:
     if not isinstance(precio, dict):
         return {"precio": None, "precio_moneda": None}
 
-    operacion = prop.get("operacion")
-
     # ------------------
-    # VENTA
+    # VENTA (prioridad)
     # ------------------
-    if operacion == "venta":
-        venta = precio.get("venta", {})
-        if not venta.get("activo"):
-            return {"precio": None, "precio_moneda": None}
-
-        divisa = str(venta.get("divisa", "")).upper()
+    venta = precio.get("venta")
+    if isinstance(venta, dict) and venta.get("activo") is True:
         principal = to_int(venta.get("principal"))
+        divisa = str(venta.get("divisa", "")).upper()
 
         if principal:
             if divisa == "UF":
@@ -90,63 +86,13 @@ def extract_price(prop: dict) -> dict:
     # ------------------
     # ARRIENDO
     # ------------------
-    if operacion == "arriendo":
-        arr = precio.get("arriendo", {})
-        if not arr.get("activo"):
-            return {"precio": None, "precio_moneda": None}
-
-        principal = to_int(arr.get("principal"))
+    arriendo = precio.get("arriendo")
+    if isinstance(arriendo, dict) and arriendo.get("activo") is True:
+        principal = to_int(arriendo.get("principal"))
         if principal:
             return {"precio": principal, "precio_moneda": "CLP"}
 
     return {"precio": None, "precio_moneda": None}
-
-
-    # ------------------
-    # VENTA
-    # ------------------
-    if en_venta and precio_ppal:
-        if divisa == "UF":
-            return {"precio": precio_ppal, "precio_moneda": "UF"}
-        if divisa in ("$", "CLP", "PESOS"):
-            return {"precio": precio_ppal, "precio_moneda": "CLP"}
-
-    # ------------------
-    # ARRIENDO
-    # ------------------
-    if en_arriendo and precio_ppal:
-        return {"precio": precio_ppal, "precio_moneda": "CLP"}
-
-    return {"precio": None, "precio_moneda": None}
-
-    # ------------------
-    # VENTA
-    # ------------------
-    if en_venta and precio_ppal:
-        if divisa == "UF":
-            return {
-                "precio": precio_ppal,
-                "precio_moneda": "UF"
-            }
-        if divisa in ("$", "CLP", "PESOS"):
-            return {
-                "precio": precio_ppal,
-                "precio_moneda": "CLP"
-            }
-
-    # ------------------
-    # ARRIENDO
-    # ------------------
-    if en_arriendo and precio_ppal:
-        return {
-            "precio": precio_ppal,
-            "precio_moneda": "CLP"
-        }
-
-    return {
-        "precio": None,
-        "precio_moneda": None
-    }
 
 
 def clean_for_json(obj):
