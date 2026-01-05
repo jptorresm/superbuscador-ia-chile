@@ -1,3 +1,16 @@
+print("🔥 APP STARTING — app.py cargado", flush=True)
+import subprocess
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+print("🔥 Ejecutando enriquecimiento", flush=True)
+
+script = BASE_DIR / "scripts" / "enrich_nexxos.py"
+subprocess.run(["python", str(script)], check=True)
+
+print("🔥 Enriquecimiento terminado", flush=True)
+
 from backend.backend.data_bootstrap import run_enrichment
 
 run_enrichment()
