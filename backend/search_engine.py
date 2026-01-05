@@ -5,10 +5,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data" / "sources"
 
 
-# =========================
-# CARGA DE FUENTES (SIN CACHE)
-# =========================
-
 def load_sources() -> list[dict]:
     properties = []
 
@@ -22,10 +18,6 @@ def load_sources() -> list[dict]:
     return properties
 
 
-# =========================
-# FILTRO DE PRECIO
-# =========================
-
 def cumple_precio(prop: dict, filtros: dict) -> bool:
     precio = prop.get("precio_normalizado")
     moneda = prop.get("precio_moneda")
@@ -33,14 +25,12 @@ def cumple_precio(prop: dict, filtros: dict) -> bool:
     if precio is None or moneda is None:
         return True
 
-    # UF
     if moneda == "UF":
         if filtros.get("precio_min_uf") is not None and precio < filtros["precio_min_uf"]:
             return False
         if filtros.get("precio_max_uf") is not None and precio > filtros["precio_max_uf"]:
             return False
 
-    # CLP
     if moneda == "CLP":
         if filtros.get("precio_min_clp") is not None and precio < filtros["precio_min_clp"]:
             return False
@@ -49,10 +39,6 @@ def cumple_precio(prop: dict, filtros: dict) -> bool:
 
     return True
 
-
-# =========================
-# BÚSQUEDA PRINCIPAL
-# =========================
 
 def search_properties(
     comuna: str | None = None,
@@ -63,10 +49,9 @@ def search_properties(
     precio_max_clp: int | None = None,
     amenities: list[str] | None = None,
 ):
-    # 🔑 Cargar SIEMPRE data actualizada
     all_properties = load_sources()
 
-    filtros = {
+    filtros_precio = {
         "precio_min_uf": precio_min_uf,
         "precio_max_uf": precio_max_uf,
         "precio_min_clp": precio_min_clp,
@@ -83,7 +68,7 @@ def search_properties(
         if operacion and prop.get("operacion") != operacion:
             continue
 
-        if not cumple_precio(prop, filtros):
+        if not cumple_precio(prop, filtros_precio):
             continue
 
         if amenities:
