@@ -1,6 +1,5 @@
 from pathlib import Path
 import json
-import math
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data" / "sources"
@@ -12,6 +11,9 @@ DATA_DIR = BASE_DIR / "data" / "sources"
 
 def load_sources() -> list[dict]:
     properties = []
+
+    if not DATA_DIR.exists():
+        raise FileNotFoundError(f"No existe el directorio {DATA_DIR}")
 
     for file in DATA_DIR.glob("*.json"):
         with open(file, "r", encoding="utf-8") as f:
@@ -27,123 +29,28 @@ ALL_PROPERTIES = load_sources()
 
 
 # =========================
-# UTILIDADES
-# =========================
-
-def to_int(value):
-    """
-    Convierte valores tipo '12.300,00' o '135.114.198,00' a int
-    """
-    try:
-        if value is None:
-            return None
-        value = str(value).strip()
-        if value == "":
-            return None
-        value = value.replace(".", "").replace(",", ".")
-        return int(float(value))
-    except Exception:
-        return None
-
-
-def extract_price(prop: dict) -> dict:
-    """
-    Extrae y normaliza el precio desde:
-    prop["precio"]["venta" | "arriendo"]
-    usando flags 'activo' como fuente de verdad
-    """
-
-    def to_int(value):
-        try:
-            if value is None:
-                return None
-            value = str(value).strip()
-            if value == "":
-                return None
-            value = value.replace(".", "").replace(",", ".")
-            return int(float(value))
-        except Exception:
-            return None
-
-    precio = prop.get("precio")
-    if not isinstance(precio, dict):
-        return {"precio": None, "precio_moneda": None}
-
-    # ------------------
-    # VENTA (prioridad)
-    # ------------------
-    venta = precio.get("venta")
-    if isinstance(venta, dict) and venta.get("activo") is True:
-        principal = to_int(venta.get("principal"))
-        divisa = str(venta.get("divisa", "")).upper()
-
-        if principal:
-            if divisa == "UF":
-                return {"precio": principal, "precio_moneda": "UF"}
-            if divisa in ("$", "CLP", "PESOS"):
-                return {"precio": principal, "precio_moneda": "CLP"}
-
-    # ------------------
-    # ARRIENDO
-    # ------------------
-    arriendo = precio.get("arriendo")
-    if isinstance(arriendo, dict) and arriendo.get("activo") is True:
-        principal = to_int(arriendo.get("principal"))
-        if principal:
-            return {"precio": principal, "precio_moneda": "CLP"}
-
-    return {"precio": None, "precio_moneda": None}
-
-
-def clean_for_json(obj):
-    """
-    Limpia NaN para serialización JSON segura
-    """
-    if isinstance(obj, dict):
-        return {k: clean_for_json(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [clean_for_json(v) for v in obj]
-    if isinstance(obj, float) and math.isnan(obj):
-        return None
-    return obj
-
-
-# =========================
 # FILTRO DE PRECIO
 # =========================
 
 def cumple_precio(prop: dict, filtros: dict) -> bool:
-    operacion = filtros.get("operacion")
+    """
+    Usa SOLO precio_normalizado y precio_moneda.
+    Asume que vienen enriquecidos.
+    """
 
-    precio_max_uf = filtros.get("precio_max_uf")
-    precio_max_clp = filtros.get("precio_max_clp")
+    precio = prop.get("precio_normalizado")
+    moneda = prop.get("precio_moneda")
 
-    price_data = extract_price(prop)
-    precio = price_data.get("precio")
-    moneda = price_data.get("precio_moneda")
+    if precio is None or moneda is None:
+        return True  # no descartamos si no hay precio
 
-    # 🟢 VENTA → UF primero
-    if operacion == "venta":
-        if precio is None:
-            return True
+    # Venta en UF
+    if moneda == "UF" and filtros.get("precio_max_uf"):
+        return precio <= filtros["precio_max_uf"]
 
-        if moneda == "UF" and precio_max_uf:
-            return precio <= precio_max_uf
-
-        if moneda == "CLP" and precio_max_clp:
-            return precio <= precio_max_clp
-
-        return True
-
-    # 🟡 ARRIENDO → CLP
-    if operacion == "arriendo":
-        if precio is None:
-            return True
-
-        if precio_max_clp:
-            return precio <= precio_max_clp
-
-        return True
+    # CLP (venta o arriendo)
+    if moneda == "CLP" and filtros.get("precio_max_clp"):
+        return precio <= filtros["precio_max_clp"]
 
     return True
 
@@ -159,31 +66,37 @@ def search_properties(
     precio_max_clp: int | None = None,
     amenities: list[str] | None = None,
 ):
+    """
+    Búsqueda simple sobre data enriquecida.
+    """
+
+    filtros = {
+        "precio_max_uf": precio_max_uf,
+        "precio_max_clp": precio_max_clp,
+    }
+
     results = []
 
     for prop in ALL_PROPERTIES:
 
+        # Comuna
         if comuna and prop.get("comuna", "").lower() != comuna.lower():
             continue
 
+        # Operación
         if operacion and prop.get("operacion") != operacion:
             continue
 
-        if not cumple_precio(
-            prop,
-            {
-                "operacion": operacion,
-                "precio_max_uf": precio_max_uf,
-                "precio_max_clp": precio_max_clp,
-            }
-        ):
+        # Precio
+        if not cumple_precio(prop, filtros):
             continue
 
-        # 💰 Normalizar precio para salida
-        price_data = extract_price(prop)
-        prop["precio_normalizado"] = price_data["precio"]
-        prop["precio_moneda"] = price_data["precio_moneda"]
+        # Amenities (AND lógico)
+        if amenities:
+            prop_amenities = prop.get("amenities", {})
+            if not all(prop_amenities.get(a) is True for a in amenities):
+                continue
 
-        results.append(clean_for_json(prop))
+        results.append(prop)
 
     return results
