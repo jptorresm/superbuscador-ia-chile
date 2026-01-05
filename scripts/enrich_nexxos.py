@@ -7,59 +7,40 @@ INPUT_PATH = BASE_DIR / "data" / "nexxos" / "properties.json"
 OUTPUT_PATH = BASE_DIR / "data" / "sources" / "nexxos.json"
 
 
-def to_int(value):
-    try:
-        if value is None:
-            return None
-        value = str(value).strip()
-        if value == "":
-            return None
-        value = value.replace(".", "").replace(",", ".")
-        return int(float(value))
-    except Exception:
-        return None
-
-
 def normalize_price(item: dict):
     """
-    Devuelve (precio_normalizado, precio_moneda)
-    basado en item["precio"]
+    Extrae precio_normalizado y precio_moneda
+    desde la estructura REAL del JSON Nexxos
     """
 
     precio = item.get("precio")
     if not isinstance(precio, dict):
         return None, None
 
-    # ----------------
-    # VENTA
-    # ----------------
     venta = precio.get("venta")
     if isinstance(venta, dict) and venta.get("activo") is True:
-        principal = to_int(venta.get("principal"))
-        divisa = str(venta.get("divisa", "")).upper()
+        principal = venta.get("principal")
+        divisa = venta.get("divisa")
 
-        if principal:
-            if divisa == "UF":
-                return principal, "UF"
-            if divisa in ("$", "CLP", "PESOS"):
-                return principal, "CLP"
+        if principal is not None and divisa:
+            try:
+                return int(round(float(principal))), str(divisa).upper()
+            except Exception:
+                return None, None
 
-    # ----------------
-    # ARRIENDO
-    # ----------------
     arriendo = precio.get("arriendo")
     if isinstance(arriendo, dict) and arriendo.get("activo") is True:
-        principal = to_int(arriendo.get("principal"))
-        if principal:
-            return principal, "CLP"
+        principal = arriendo.get("principal")
+        if principal is not None:
+            try:
+                return int(round(float(principal))), "CLP"
+            except Exception:
+                return None, None
 
     return None, None
 
 
 def main():
-    if not INPUT_PATH.exists():
-        raise FileNotFoundError(f"No existe {INPUT_PATH}")
-
     with open(INPUT_PATH, "r", encoding="utf-8") as f:
         data = json.load(f)
 
@@ -78,13 +59,12 @@ def main():
     with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
         json.dump(enriched, f, ensure_ascii=False, indent=2)
 
-    # 🔎 DEBUG CLARO
+    # 🔎 VERIFICACIÓN CLARA
     sample = enriched[0]
-    print("DEBUG sample enriquecido:")
+    print("DEBUG SAMPLE:")
     print("codigo:", sample.get("codigo"))
     print("precio_normalizado:", sample.get("precio_normalizado"))
     print("precio_moneda:", sample.get("precio_moneda"))
-
     print(f"✅ Enriquecidas {len(enriched)} propiedades → {OUTPUT_PATH}")
 
 

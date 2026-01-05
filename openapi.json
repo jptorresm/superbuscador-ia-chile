@@ -1,0 +1,80 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "SuperBuscador IA Chile",
+    "description": "API conversacional para búsqueda inteligente de propiedades inmobiliarias en Chile. La IA interpreta lenguaje natural, decide si preguntar o buscar, y devuelve resultados estructurados.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://superbuscador-api.onrender.com",
+      "description": "Producción (Render)"
+    }
+  ],
+  "paths": {
+    "/assistant": {
+      "post": {
+        "summary": "Asistente conversacional inmobiliario",
+        "description": "Recibe un mensaje en lenguaje natural. La IA decide si debe pedir más información o ejecutar una búsqueda real de propiedades.",
+        "operationId": "assistant",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "description": "Mensaje del usuario en lenguaje natural"
+                  }
+                },
+                "required": ["message"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Respuesta del asistente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": ["question", "results", "error"],
+                      "description": "Tipo de respuesta del asistente"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Mensaje para el usuario (pregunta o explicación)",
+                      "nullable": true
+                    },
+                    "missing_fields": {
+                      "type": "array",
+                      "items": { "type": "string" },
+                      "description": "Campos faltantes cuando type = question",
+                      "nullable": true
+                    },
+                    "results": {
+                      "type": "array",
+                      "description": "Resultados de búsqueda cuando type = results",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "nullable": true
+                    }
+                  },
+                  "required": ["type"]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

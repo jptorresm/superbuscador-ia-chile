@@ -1,3 +1,6 @@
+from backend.data_bootstrap import run_enrichment
+
+run_enrichment()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
