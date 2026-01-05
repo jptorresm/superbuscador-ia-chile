@@ -1,9 +1,14 @@
 from pathlib import Path
 import json
+import math
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data" / "sources"
 
+
+# =========================
+# CARGA DE FUENTES
+# =========================
 
 def load_sources() -> list[dict]:
     properties = []
@@ -21,31 +26,123 @@ def load_sources() -> list[dict]:
 ALL_PROPERTIES = load_sources()
 
 
+# =========================
+# UTILIDADES
+# =========================
+
+def to_int(value):
+    """
+    Convierte valores tipo '12.300,00' o '135.114.198,00' a int
+    """
+    try:
+        if value is None:
+            return None
+        value = str(value).strip()
+        if value == "":
+            return None
+        value = value.replace(".", "").replace(",", ".")
+        return int(float(value))
+    except Exception:
+        return None
+
+
+def extract_price(prop: dict) -> dict:
+    """
+    Extrae y normaliza el precio según estructura real Nexxos
+    """
+
+    en_venta = str(prop.get("En Venta", "")).strip().upper() == "SI"
+    en_arriendo = str(prop.get("En Arriendo", "")).strip().upper() == "SI"
+
+    divisa = str(prop.get("Divisa ppal.", "")).strip().upper()
+    precio_ppal = to_int(prop.get("Precio ppal."))
+
+    # ------------------
+    # VENTA
+    # ------------------
+    if en_venta and precio_ppal:
+        if divisa == "UF":
+            return {
+                "precio": precio_ppal,
+                "precio_moneda": "UF"
+            }
+        if divisa in ("$", "CLP", "PESOS"):
+            return {
+                "precio": precio_ppal,
+                "precio_moneda": "CLP"
+            }
+
+    # ------------------
+    # ARRIENDO
+    # ------------------
+    if en_arriendo and precio_ppal:
+        return {
+            "precio": precio_ppal,
+            "precio_moneda": "CLP"
+        }
+
+    return {
+        "precio": None,
+        "precio_moneda": None
+    }
+
+
+def clean_for_json(obj):
+    """
+    Limpia NaN para serialización JSON segura
+    """
+    if isinstance(obj, dict):
+        return {k: clean_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [clean_for_json(v) for v in obj]
+    if isinstance(obj, float) and math.isnan(obj):
+        return None
+    return obj
+
+
+# =========================
+# FILTRO DE PRECIO
+# =========================
+
 def cumple_precio(prop: dict, filtros: dict) -> bool:
     operacion = filtros.get("operacion")
 
     precio_max_uf = filtros.get("precio_max_uf")
     precio_max_clp = filtros.get("precio_max_clp")
 
-    precio_uf = prop.get("precio_uf")
-    precio_clp = prop.get("precio_clp")
+    price_data = extract_price(prop)
+    precio = price_data.get("precio")
+    moneda = price_data.get("precio_moneda")
 
     # 🟢 VENTA → UF primero
     if operacion == "venta":
-        if precio_max_uf and precio_uf:
-            return precio_uf <= precio_max_uf
-        if precio_max_clp and precio_clp:
-            return precio_clp <= precio_max_clp
-        return True  # NO descartar si no hay comparación válida
+        if precio is None:
+            return True
+
+        if moneda == "UF" and precio_max_uf:
+            return precio <= precio_max_uf
+
+        if moneda == "CLP" and precio_max_clp:
+            return precio <= precio_max_clp
+
+        return True
 
     # 🟡 ARRIENDO → CLP
     if operacion == "arriendo":
-        if precio_max_clp and precio_clp:
-            return precio_clp <= precio_max_clp
+        if precio is None:
+            return True
+
+        if precio_max_clp:
+            return precio <= precio_max_clp
+
         return True
 
     return True
 
+
+# =========================
+# BÚSQUEDA PRINCIPAL
+# =========================
 
 def search_properties(
     comuna: str | None = None,
@@ -74,6 +171,11 @@ def search_properties(
         ):
             continue
 
-        results.append(prop)
+        # 💰 Normalizar precio para salida
+        price_data = extract_price(prop)
+        prop["precio"] = price_data["precio"]
+        prop["precio_moneda"] = price_data["precio_moneda"]
+
+        results.append(clean_for_json(prop))
 
     return results
