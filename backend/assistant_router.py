@@ -51,11 +51,15 @@ def assistant(req: AssistantRequest):
     if action == "search":
         raw_filters = decision.get("filters") or {}
 
-        # 🔁 Mapeo explícito (sin nombres ambiguos)
+        # 🎯 Mapeo explícito (UF / CLP separados)
         mapped_filters = {
             "comuna": raw_filters.get("comuna"),
             "operacion": raw_filters.get("operacion"),
-            "precio_max": raw_filters.get("precio_max"),
+
+            # 🔑 PRECIOS
+            "precio_max_uf": raw_filters.get("precio_max_uf"),
+            "precio_max_clp": raw_filters.get("precio_max_clp"),
+
             "amenities": raw_filters.get("amenities"),
         }
 
@@ -78,13 +82,12 @@ def assistant(req: AssistantRequest):
         try:
             results = search_properties(**mapped_filters)
         except Exception as e:
-            # 🔴 Error real visible (no oculto)
             return {
                 "type": "error",
                 "message": f"Error ejecutando la búsqueda: {str(e)}",
             }
 
-        # 🧠 Explicación (no bloqueante)
+        # 🧠 Explicación simple (no opinativa)
         try:
             summary = explain_results(
                 query=req.message,

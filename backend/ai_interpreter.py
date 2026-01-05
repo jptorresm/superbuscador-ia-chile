@@ -1,88 +1,79 @@
-import json
-from openai import OpenAI
+import re
+import unicodedata
 
-client = OpenAI()
 
-SYSTEM_PROMPT = """
-Eres un Asesor Inmobiliario Digital experto en el mercado inmobiliario chileno.
+def normalize(text: str) -> str:
+    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("utf-8").lower()
 
-Interpretas búsquedas inmobiliarias en lenguaje natural y las transformas
-en filtros claros para un sistema de búsqueda.
 
-Debes pensar como un corredor humano, no como un parser técnico.
+def interpret_message(message: str) -> dict:
+    text = normalize(message)
 
-Devuelve SIEMPRE un JSON válido, sin texto adicional.
+    filters = {}
+    missing_fields = []
 
-Formato esperado:
+    # -------------------------
+    # OPERACIÓN
+    # -------------------------
+    if "venta" in text or "vender" in text:
+        operacion = "venta"
+    elif "arriendo" in text or "arrendar" in text:
+        operacion = "arriendo"
+    else:
+        missing_fields.append("operacion")
+        operacion = None
 
-{
-  "action": "search" | "ask",
-  "filters": {
-    "operacion": "venta" | "arriendo" | null,
-    "tipo": "casa" | "departamento" | null,
-    "comuna": string | null,
-    "precio_max": number | null
-  },
-  "assumptions": [string],
-  "missing_fields": [string],
-  "confidence": number
-}
+    if operacion:
+        filters["operacion"] = operacion
 
-Reglas:
-- Usa action="search" si la intención es suficientemente clara.
-- Usa action="ask" si falta información crítica.
-- Convierte precios como "2 MM", "2 millones", "2000000" a CLP entero.
-- Reconoce comunas de Chile aunque estén mal escritas.
-- No inventes información.
-"""
+    # -------------------------
+    # COMUNA (básico, luego mejoramos)
+    # -------------------------
+    comunas = [
+        "las condes", "vitacura", "lo barnechea",
+        "nunoa", "providencia", "la reina", "santiago"
+    ]
 
-def interpret_message(text: str) -> dict:
-    try:
-        completion = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": text},
-            ],
-            response_format={"type": "json_object"},
-            temperature=0,
-        )
+    for c in comunas:
+        if c in text:
+            filters["comuna"] = c.title()
+            break
 
-        content = completion.choices[0].message.content
-        data = json.loads(content)
+    if "comuna" not in filters:
+        missing_fields.append("comuna")
 
-        # Normalización mínima defensiva
-        action = data.get("action")
-        filters = data.get("filters", {}) or {}
-        assumptions = data.get("assumptions", []) or []
-        missing = data.get("missing_fields", []) or []
-        confidence = data.get("confidence")
+    # -------------------------
+    # PRECIO
+    # -------------------------
+    # UF
+    match_uf = re.search(r"(\d{1,3}(?:\.\d{3})*)\s*uf", text)
+    # CLP
+    match_clp = re.search(r"(\d{3,})\s*(millones|mm|m)", text)
 
-        if action == "ask":
-            return {
-                "action": "ask",
-                "message": "Necesito un poco más de información para continuar.",
-                "missing_fields": missing,
-                "filters_partial": filters,
-                "assumptions": assumptions,
-                "confidence": confidence,
-            }
+    if match_uf:
+        value = int(match_uf.group(1).replace(".", ""))
+        if operacion == "venta":
+            filters["precio_max_uf"] = value
+        else:
+            # UF en arriendo es raro → ignoramos
+            pass
 
-        return {
-            "action": "search",
-            "filters": filters,
-            "assumptions": assumptions,
-            "confidence": confidence,
-        }
+    elif match_clp:
+        value = int(match_clp.group(1)) * 1_000_000
+        filters["precio_max_clp"] = value
 
-    except Exception as e:
-        print("ERROR interpret_message:", repr(e))
-
+    # -------------------------
+    # DECISIÓN
+    # -------------------------
+    if missing_fields:
         return {
             "action": "ask",
-            "message": "Tuve un problema interpretando el mensaje. ¿Puedes reformularlo?",
-            "missing_fields": [],
-            "filters_partial": {},
-            "assumptions": [],
-            "confidence": 0.0,
+            "message": "¿Puedes indicar comuna y tipo de operación?",
+            "missing_fields": missing_fields,
+            "filters_partial": filters,
         }
+
+    return {
+        "action": "search",
+        "filters": filters,
+    }
