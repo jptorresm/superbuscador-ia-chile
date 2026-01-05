@@ -48,14 +48,68 @@ def to_int(value):
 
 def extract_price(prop: dict) -> dict:
     """
-    Extrae y normaliza el precio según estructura real Nexxos
+    Extrae y normaliza el precio desde estructura Nexxos real,
+    tolerante a variantes de nombre de campo.
     """
 
-    en_venta = str(prop.get("En Venta", "")).strip().upper() == "SI"
-    en_arriendo = str(prop.get("En Arriendo", "")).strip().upper() == "SI"
+    def to_int(value):
+        try:
+            if value is None:
+                return None
+            value = str(value).strip()
+            if value == "":
+                return None
+            value = value.replace(".", "").replace(",", ".")
+            return int(float(value))
+        except Exception:
+            return None
 
-    divisa = str(prop.get("Divisa ppal.", "")).strip().upper()
-    precio_ppal = to_int(prop.get("Precio ppal."))
+    def get_any(prop, keys):
+        for k in keys:
+            if k in prop and prop[k] not in (None, "", 0):
+                return prop[k]
+        return None
+
+    # Flags
+    en_venta = str(get_any(prop, ["En Venta", "EnVenta", "venta"])).upper() == "SI"
+    en_arriendo = str(get_any(prop, ["En Arriendo", "EnArriendo", "arriendo"])).upper() == "SI"
+
+    # Divisa
+    divisa = str(
+        get_any(prop, ["Divisa ppal.", "Divisa ppal", "Divisa", "moneda"])
+        or ""
+    ).strip().upper()
+
+    # Precio principal
+    precio_ppal = to_int(
+        get_any(
+            prop,
+            [
+                "Precio ppal.",
+                "Precio ppal",
+                "Precio Principal",
+                "precio_ppal",
+                "precio",
+            ],
+        )
+    )
+
+    # ------------------
+    # VENTA
+    # ------------------
+    if en_venta and precio_ppal:
+        if divisa == "UF":
+            return {"precio": precio_ppal, "precio_moneda": "UF"}
+        if divisa in ("$", "CLP", "PESOS"):
+            return {"precio": precio_ppal, "precio_moneda": "CLP"}
+
+    # ------------------
+    # ARRIENDO
+    # ------------------
+    if en_arriendo and precio_ppal:
+        return {"precio": precio_ppal, "precio_moneda": "CLP"}
+
+    return {"precio": None, "precio_moneda": None}
 
     # ------------------
     # VENTA
