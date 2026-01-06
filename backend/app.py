@@ -1,14 +1,14 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-import requests
+import httpx
 
 from backend.assistant_router import router as assistant_router
 
 app = FastAPI(title="SuperBuscador IA Chile")
 
 # =========================
-# CORS (simple, seguro)
+# CORS (simple)
 # =========================
 app.add_middleware(
     CORSMiddleware,
@@ -23,24 +23,23 @@ app.add_middleware(
 app.include_router(assistant_router)
 
 # =========================
-# PROXY (CLAVE PARA ODOO ONLINE)
+# PROXY (ODOO ONLINE)
 # =========================
 @app.post("/proxy")
 async def proxy(request: Request):
     body = await request.body()
 
     try:
-        # llamada interna al assistant REAL
-        r = requests.post(
-            "http://localhost:8000/assistant",
-            data=body,
-            headers={"Content-Type": "application/json"},
-            timeout=20,
-        )
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(
+                "http://localhost:8000/assistant",
+                content=body,
+                headers={"Content-Type": "application/json"},
+            )
 
         return JSONResponse(
             status_code=200,
-            content=r.json(),
+            content=resp.json(),
             headers={"Access-Control-Allow-Origin": "*"},
         )
 
