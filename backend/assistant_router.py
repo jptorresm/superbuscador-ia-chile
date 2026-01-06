@@ -1,6 +1,5 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
-import math
 
 from backend.ai_interpreter import interpret_message
 from backend.search_engine import search_properties
@@ -9,127 +8,58 @@ from backend.search_explainer import explain_results
 router = APIRouter(tags=["assistant"])
 
 
-# =========================
-# UTILIDAD JSON SAFE
-# =========================
-
-def clean_for_json(obj):
-    if isinstance(obj, dict):
-        return {k: clean_for_json(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [clean_for_json(v) for v in obj]
-    if isinstance(obj, float) and math.isnan(obj):
-        return None
-    return obj
-
-
-# =========================
-# MODELOS
-# =========================
-
 class AssistantRequest(BaseModel):
     message: str
+    context: dict | None = None
 
-
-# =========================
-# ENDPOINT PRINCIPAL
-# =========================
 
 @router.post("/assistant")
 def assistant(req: AssistantRequest):
-    """
-    Endpoint conversacional único.
-    - La IA interpreta intención y filtros
-    - Decide preguntar o buscar
-    - Ejecuta búsqueda real
-    - Devuelve resultados estructurados
-    """
 
-    # 1️⃣ Interpretación IA
-    decision = interpret_message(req.message) or {}
+    decision = interpret_message(
+        req.message,
+        contexto_anterior=req.context
+    ) or {}
+
     action = decision.get("action")
 
-    # -------------------------
-    # 🟡 CASO: FALTAN DATOS
-    # -------------------------
     if action == "ask":
         return {
             "type": "question",
-            "message": decision.get("message", "¿Puedes darme más información?"),
+            "message": decision.get("message"),
             "missing_fields": decision.get("missing_fields", []),
             "filters_partial": decision.get("filters_partial", {}),
         }
 
-    # -------------------------
-    # 🟢 CASO: BUSCAR
-    # -------------------------
     if action == "search":
-        raw_filters = decision.get("filters") or {}
+        filters = decision.get("filters", {})
 
-        # 🎯 Mapeo explícito (UF / CLP separados)
-        mapped_filters = {
-            "comuna": raw_filters.get("comuna"),
-            "operacion": raw_filters.get("operacion"),
-
-            # 🔑 PRECIOS
-            "precio_max_uf": raw_filters.get("precio_max_uf"),
-            "precio_max_clp": raw_filters.get("precio_max_clp"),
-
-            "amenities": raw_filters.get("amenities"),
-        }
-
-        # 🧹 Limpiar filtros vacíos
-        mapped_filters = {
-            k: v for k, v in mapped_filters.items()
-            if v is not None and v != ""
-        }
-
-        # 🛑 Si no hay filtros útiles, volver a preguntar
-        if not mapped_filters:
-            return {
-                "type": "question",
-                "message": "¿En qué comuna y para qué tipo de operación buscas?",
-                "missing_fields": ["comuna", "operacion"],
-                "filters_partial": {},
-            }
-
-        # 🔍 Ejecutar búsqueda REAL
         try:
-            results = search_properties(**mapped_filters)
+            results = search_properties(**filters)
         except Exception as e:
             return {
                 "type": "error",
-                "message": f"Error ejecutando la búsqueda: {str(e)}",
+                "message": str(e)
             }
 
-        # 🧠 Explicación simple (no opinativa)
         try:
             summary = explain_results(
                 query=req.message,
-                filters=mapped_filters,
+                filters=filters,
                 results=results,
             )
         except Exception:
             summary = ""
 
-        # 🧼 LIMPIEZA JSON (FIX DEFINITIVO NaN)
-        clean_results = clean_for_json(results)
-
         return {
             "type": "results",
             "summary": summary,
-            "count": len(clean_results),
-            "results": clean_results,
-            "filters": mapped_filters,
+            "count": len(results),
+            "results": results,
+            "filters": filters,
         }
 
-    # -------------------------
-    # 🔴 FALLBACK FINAL
-    # -------------------------
     return {
         "type": "error",
-        "message": decision.get(
-            "message",
-            "No pude procesar la solicitud. ¿Puedes reformularla?"
-        ),
+        "message": "No pude interpretar la solicitud."
     }
