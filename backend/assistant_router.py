@@ -1,103 +1,58 @@
-from fastapi import APIRouter
-from pydantic import BaseModel
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 
-from backend.ai_interpreter import interpret_message
-from backend.search_engine import search_properties
-from backend.search_explainer import explain_results
+from backend.assistant_router import router as assistant_router
+from backend.assistant_router import assistant  # 👈 usamos el handler directo
 
-router = APIRouter(tags=["assistant"])
-
-
-# =========================
-# MODELO
-# =========================
-
-class AssistantRequest(BaseModel):
-    message: str
-
+app = FastAPI(title="SuperBuscador IA Chile")
 
 # =========================
-# ENDPOINT ÚNICO, ESTABLE
+# CORS (simple)
 # =========================
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["POST", "OPTIONS"],
+    allow_headers=["*"],
+)
 
-@router.post("/assistant")
-async def assistant(req: AssistantRequest):
-    """
-    Asistente ESTATLESS:
-    - Cada mensaje se procesa solo
-    - Sin memoria implícita
-    - Sin dependencias de contexto previo
-    """
+# =========================
+# ROUTER NORMAL
+# =========================
+app.include_router(assistant_router)
 
+# =========================
+# PROXY (ODOO ONLINE)
+# =========================
+@app.post("/proxy")
+async def proxy(request: Request):
     try:
-        decision = interpret_message(req.message)
+        payload = await request.json()
+
+        # Llamada directa al handler del assistant
+        response = await assistant(payload)
+
+        return JSONResponse(
+            status_code=200,
+            content=response,
+            headers={"Access-Control-Allow-Origin": "*"},
+        )
+
     except Exception as e:
-        return {
-            "type": "error",
-            "message": "Error interpretando el mensaje",
-            "detail": str(e),
-        }
-
-    if not isinstance(decision, dict):
-        return {
-            "type": "error",
-            "message": "Respuesta inválida del intérprete",
-            "debug": decision,
-        }
-
-    action = decision.get("action")
-
-    # -------------------------
-    # PREGUNTAR
-    # -------------------------
-    if action == "ask":
-        return {
-            "type": "question",
-            "message": decision.get(
-                "message",
-                "¿Puedes darme más detalles de la búsqueda?"
-            ),
-            "missing_fields": decision.get("missing_fields", []),
-            "filters_partial": decision.get("filters_partial", {}),
-        }
-
-    # -------------------------
-    # BUSCAR
-    # -------------------------
-    if action == "search":
-        filters = decision.get("filters", {})
-
-        try:
-            results = search_properties(**filters)
-        except Exception as e:
-            return {
+        return JSONResponse(
+            status_code=200,
+            content={
                 "type": "error",
-                "message": "Error ejecutando búsqueda",
+                "message": "Error en proxy",
                 "detail": str(e),
-            }
+            },
+            headers={"Access-Control-Allow-Origin": "*"},
+        )
 
-        try:
-            summary = explain_results(
-                query=req.message,
-                filters=filters,
-                results=results,
-            )
-        except Exception:
-            summary = ""
-
-        return {
-            "type": "results",
-            "summary": summary,
-            "count": len(results),
-            "results": results,
-            "filters": filters,
-        }
-
-    # -------------------------
-    # FALLBACK
-    # -------------------------
-    return {
-        "type": "error",
-        "message": "No pude procesar la solicitud",
-        "debug": decision,
-    }
+# =========================
+# ROOT
+# =========================
+@app.get("/")
+def root():
+    return {"status": "ok"}
