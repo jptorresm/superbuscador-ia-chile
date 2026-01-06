@@ -18,57 +18,79 @@ class AssistantRequest(BaseModel):
 
 
 # =========================
-# LÓGICA PURA (CLAVE)
+# LÓGICA PURA (BLINDADA)
 # =========================
 
 async def run_assistant_logic(payload: dict) -> dict:
-    message = payload.get("message", "")
-    context = payload.get("context")
+    try:
+        message = payload.get("message", "")
+        context = payload.get("context")
 
-    decision = interpret_message(
-        message,
-        contexto_anterior=context
-    ) or {}
+        decision = interpret_message(
+            message,
+            contexto_anterior=context
+        )
 
-    action = decision.get("action")
+        if not isinstance(decision, dict):
+            raise ValueError("interpret_message no retornó dict")
 
-    if action == "ask":
+        action = decision.get("action")
+
+        # -------------------------
+        # CASO: PREGUNTAR
+        # -------------------------
+        if action == "ask":
+            return {
+                "type": "question",
+                "message": decision.get("message", "¿Puedes darme más información?"),
+                "missing_fields": decision.get("missing_fields", []),
+                "filters_partial": decision.get("filters_partial", {}),
+            }
+
+        # -------------------------
+        # CASO: BUSCAR
+        # -------------------------
+        if action == "search":
+            filters = decision.get("filters", {})
+
+            try:
+                results = search_properties(**filters)
+            except Exception as e:
+                results = []
+
+            try:
+                summary = explain_results(
+                    query=message,
+                    filters=filters,
+                    results=results,
+                )
+            except Exception:
+                summary = ""
+
+            return {
+                "type": "results",
+                "summary": summary,
+                "count": len(results),
+                "results": results,
+                "filters": filters,
+            }
+
+        # -------------------------
+        # FALLBACK
+        # -------------------------
         return {
-            "type": "question",
-            "message": decision.get("message"),
-            "missing_fields": decision.get("missing_fields", []),
-            "filters_partial": decision.get("filters_partial", {}),
+            "type": "error",
+            "message": "No pude interpretar la solicitud",
+            "debug": decision,
         }
 
-    if action == "search":
-        filters = decision.get("filters", {})
-
-        try:
-            results = search_properties(**filters)
-        except Exception:
-            results = []
-
-        try:
-            summary = explain_results(
-                query=message,
-                filters=filters,
-                results=results,
-            )
-        except Exception:
-            summary = ""
-
+    except Exception as e:
+        # ⛔ JAMÁS LANZAMOS EXCEPCIÓN
         return {
-            "type": "results",
-            "summary": summary,
-            "count": len(results),
-            "results": results,
-            "filters": filters,
+            "type": "error",
+            "message": "Error interno del asistente",
+            "detail": str(e),
         }
-
-    return {
-        "type": "error",
-        "message": "No pude procesar la solicitud",
-    }
 
 
 # =========================
