@@ -1,3 +1,4 @@
+from backend.search_engine import clean_for_json
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
@@ -52,7 +53,6 @@ def extract_filters_from_text(text: str) -> Dict[str, Any]:
     # -----------------------
     # Precio CLP
     # -----------------------
-    # acepta: 900000, 900.000, hasta 900 mil, etc.
     numbers = re.findall(r"\d{3,}", t.replace(".", ""))
     if numbers:
         try:
@@ -91,18 +91,18 @@ def assistant(req: AssistantRequest):
             operacion=filters.get("operacion"),
             precio_max_clp=filters.get("precio_max_clp"),
         )
-    except Exception as e:
-        # ⚠️ Jamás devolver 500 por error de parsing
-        return {
+    except Exception:
+        return clean_for_json({
             "type": "results",
             "filters": filters,
             "results": [],
             "error": "Error interno al buscar propiedades",
-        }
+        })
 
-    # 3️⃣ Respuesta estándar
-    return {
+    # 3️⃣ Respuesta estándar (SANITIZADA)
+    return clean_for_json({
         "type": "results",
         "filters": filters,
         "results": results,
-    }
+    })
+
