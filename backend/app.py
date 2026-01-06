@@ -1,50 +1,63 @@
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+import requests
 
 from backend.assistant_router import router as assistant_router
 
 app = FastAPI(title="SuperBuscador IA Chile")
 
 # =========================
-# CORS — MODO SEGURO
+# CORS (simple, seguro)
 # =========================
-# (para desarrollo / integración externa)
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # ⚠️ importante para aislar el problema
-    allow_methods=["*"],
+    allow_origins=["*"],
+    allow_methods=["POST", "OPTIONS"],
     allow_headers=["*"],
-    allow_credentials=False,
 )
 
 # =========================
-# ROUTERS
+# ROUTER REAL
 # =========================
-
 app.include_router(assistant_router)
 
 # =========================
-# CATCH GLOBAL DE ERRORES
+# PROXY (CLAVE PARA ODOO ONLINE)
 # =========================
-# ⚠️ ESTO ES CLAVE
+@app.post("/proxy")
+async def proxy(request: Request):
+    body = await request.body()
 
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    return JSONResponse(
-        status_code=200,   # 👈 evita 500
-        content={
-            "type": "error",
-            "message": "Error interno controlado",
-            "detail": str(exc),
-        },
-    )
+    try:
+        # llamada interna al assistant REAL
+        r = requests.post(
+            "http://localhost:8000/assistant",
+            data=body,
+            headers={"Content-Type": "application/json"},
+            timeout=20,
+        )
+
+        return JSONResponse(
+            status_code=200,
+            content=r.json(),
+            headers={"Access-Control-Allow-Origin": "*"},
+        )
+
+    except Exception as e:
+        return JSONResponse(
+            status_code=200,
+            content={
+                "type": "error",
+                "message": "Error en proxy",
+                "detail": str(e),
+            },
+            headers={"Access-Control-Allow-Origin": "*"},
+        )
 
 # =========================
-# HEALTHCHECK
+# ROOT
 # =========================
-
 @app.get("/")
 def root():
     return {"status": "ok"}
