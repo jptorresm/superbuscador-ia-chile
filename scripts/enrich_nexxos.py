@@ -2,70 +2,80 @@ import json
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+INPUT_FILE = BASE_DIR / "data" / "sources" / "nexxos.json"
+OUTPUT_DIR = BASE_DIR / "data" / "enriched"
+OUTPUT_FILE = OUTPUT_DIR / "nexxos_enriched.json"
 
-INPUT_PATH = BASE_DIR / "data" / "nexxos" / "properties.json"
-OUTPUT_PATH = BASE_DIR / "data" / "sources" / "nexxos.json"
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def normalize_price(item: dict):
-    """
-    Extrae precio_normalizado y precio_moneda
-    desde la estructura REAL del JSON Nexxos
-    """
+def to_bool(val):
+    return str(val).strip().lower() in ("sí", "si", "true", "1")
 
-    precio = item.get("precio")
-    if not isinstance(precio, dict):
-        return None, None
 
-    venta = precio.get("venta")
-    if isinstance(venta, dict) and venta.get("activo") is True:
-        principal = venta.get("principal")
-        divisa = venta.get("divisa")
+def enrich_property(raw: dict) -> dict:
+    # Flags de operación desde Nexxos
+    en_venta = to_bool(raw.get("Venta"))
+    en_arriendo = to_bool(raw.get("Arriendo"))
 
-        if principal is not None and divisa:
-            try:
-                return int(round(float(principal))), str(divisa).upper()
-            except Exception:
-                return None, None
+    precio_ppal = raw.get("Precio ppal.")
+    moneda = raw.get("Divisa ppal.")
 
-    arriendo = precio.get("arriendo")
-    if isinstance(arriendo, dict) and arriendo.get("activo") is True:
-        principal = arriendo.get("principal")
-        if principal is not None:
-            try:
-                return int(round(float(principal))), "CLP"
-            except Exception:
-                return None, None
+    precio = {
+        "venta": None,
+        "arriendo": None
+    }
 
-    return None, None
+    if en_venta and precio_ppal:
+        precio["venta"] = {
+            "valor": precio_ppal,
+            "moneda": moneda
+        }
+
+    if en_arriendo and precio_ppal:
+        precio["arriendo"] = {
+            "valor": precio_ppal,
+            "moneda": moneda
+        }
+
+    return {
+        "id": raw.get("id") or raw.get("codigo"),
+        "source": "nexxos",
+        "source_id": raw.get("codigo"),
+        "link": raw.get("link"),
+        "estado": raw.get("estado", "").lower(),
+        "publicada_web": to_bool(raw.get("publicada_web")),
+        "operacion": "venta" if en_venta else "arriendo" if en_arriendo else None,
+
+        "precio": precio,
+
+        "ubicacion": {
+            "region": raw.get("region"),
+            "comuna": raw.get("comuna"),
+            "sector": raw.get("sector"),
+        },
+
+        "caracteristicas": {
+            "dormitorios": raw.get("dormitorios"),
+            "banos": raw.get("banos"),
+            "gastos_comunes_clp": raw.get("gastos_comunes"),
+        },
+
+        "amenities": raw.get("amenities", {}),
+        "raw": raw
+    }
 
 
 def main():
-    with open(INPUT_PATH, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    with open(INPUT_FILE, "r", encoding="utf-8") as f:
+        raw_data = json.load(f)
 
-    enriched = []
+    enriched = [enrich_property(p) for p in raw_data]
 
-    for item in data:
-        precio_normalizado, precio_moneda = normalize_price(item)
-
-        item["precio_normalizado"] = precio_normalizado
-        item["precio_moneda"] = precio_moneda
-
-        enriched.append(item)
-
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         json.dump(enriched, f, ensure_ascii=False, indent=2)
 
-    # 🔎 VERIFICACIÓN CLARA
-    sample = enriched[0]
-    print("DEBUG SAMPLE:")
-    print("codigo:", sample.get("codigo"))
-    print("precio_normalizado:", sample.get("precio_normalizado"))
-    print("precio_moneda:", sample.get("precio_moneda"))
-    print(f"✅ Enriquecidas {len(enriched)} propiedades → {OUTPUT_PATH}")
+    print(f"✅ Enriched generado: {OUTPUT_FILE} ({len(enriched)} propiedades)")
 
 
 if __name__ == "__main__":
