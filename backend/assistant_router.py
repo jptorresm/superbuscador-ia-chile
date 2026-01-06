@@ -1,87 +1,110 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
+from typing import Optional, Dict, Any
 
-from backend.ai_interpreter import interpret_message
 from backend.search_engine import search_properties
-from backend.search_explainer import explain_results
 
-router = APIRouter(tags=["assistant"])
-
+router = APIRouter()
 
 # =========================
-# MODELO
+# MODELOS
 # =========================
 
 class AssistantRequest(BaseModel):
     message: str
+    session_id: Optional[str] = None
 
 
 # =========================
-# ENDPOINT ÚNICO
+# MEMORIA EN RAM (simple)
+# =========================
+
+SESSIONS: Dict[str, Dict[str, Any]] = {}
+
+
+def get_session(session_id: str) -> Dict[str, Any]:
+    if session_id not in SESSIONS:
+        SESSIONS[session_id] = {}
+    return SESSIONS[session_id]
+
+
+# =========================
+# UTILIDADES
+# =========================
+
+def extract_filters_from_text(text: str) -> Dict[str, Any]:
+    t = text.lower()
+
+    filters = {}
+
+    if "arriendo" in t:
+        filters["operacion"] = "arriendo"
+    elif "venta" in t:
+        filters["operacion"] = "venta"
+
+    if "providencia" in t:
+        filters["comuna"] = "providencia"
+    if "ñuñoa" in t:
+        filters["comuna"] = "ñuñoa"
+    if "las condes" in t:
+        filters["comuna"] = "las condes"
+
+    # precio simple (CLP)
+    for token in t.replace(".", "").split():
+        if token.isdigit():
+            value = int(token)
+            if value > 100000:
+                filters["precio_max_clp"] = value
+
+    return filters
+
+
+def missing_fields(state: Dict[str, Any]) -> list[str]:
+    required = ["operacion", "comuna", "precio_max_clp"]
+    return [f for f in required if f not in state]
+
+
+def question_for(field: str) -> str:
+    if field == "operacion":
+        return "¿La buscas en venta o en arriendo?"
+    if field == "comuna":
+        return "¿En qué comuna buscas la propiedad?"
+    if field == "precio_max_clp":
+        return "¿Cuál es tu presupuesto máximo en pesos?"
+    return "¿Puedes darme un poco más de información?"
+
+
+# =========================
+# ENDPOINT
 # =========================
 
 @router.post("/assistant")
-async def assistant(req: AssistantRequest):
-    try:
-        decision = interpret_message(req.message)
-    except Exception as e:
-        return {
-            "type": "error",
-            "message": "Error interpretando el mensaje",
-            "detail": str(e),
-        }
+def assistant(req: AssistantRequest):
+    session_id = req.session_id or "default"
+    state = get_session(session_id)
 
-    if not isinstance(decision, dict):
-        return {
-            "type": "error",
-            "message": "Respuesta inválida del intérprete",
-            "debug": decision,
-        }
+    # 1️⃣ Extraer filtros del mensaje actual
+    new_filters = extract_filters_from_text(req.message)
 
-    action = decision.get("action")
+    # 2️⃣ Actualizar estado acumulado
+    state.update(new_filters)
 
-    if action == "ask":
+    # 3️⃣ Ver qué falta
+    missing = missing_fields(state)
+
+    if missing:
+        field = missing[0]
         return {
             "type": "question",
-            "message": decision.get(
-                "message",
-                "¿Puedes darme más detalles?"
-            ),
-            "missing_fields": decision.get("missing_fields", []),
-            "filters_partial": decision.get("filters_partial", {}),
+            "message": question_for(field),
+            "state": state,
         }
 
-    if action == "search":
-        filters = decision.get("filters", {})
-
-        try:
-            results = search_properties(**filters)
-        except Exception as e:
-            return {
-                "type": "error",
-                "message": "Error ejecutando búsqueda",
-                "detail": str(e),
-            }
-
-        try:
-            summary = explain_results(
-                query=req.message,
-                filters=filters,
-                results=results,
-            )
-        except Exception:
-            summary = ""
-
-        return {
-            "type": "results",
-            "summary": summary,
-            "count": len(results),
-            "results": results,
-            "filters": filters,
-        }
+    # 4️⃣ Ejecutar búsqueda (YA NO LOOPA)
+    results = search_properties(state)
 
     return {
-        "type": "error",
-        "message": "No pude procesar la solicitud",
-        "debug": decision,
+        "type": "results",
+        "filters": state,
+        "results": results,
     }
