@@ -128,22 +128,16 @@ def search_properties(
     for prop in ALL_PROPERTIES:
 
         # -----------------------
-        # Comuna (robusta)
+        # Comuna (robusta FINAL)
         # -----------------------
         if comuna:
-            prop_comuna = prop.get("comuna")
+            prop_comuna = comuna_to_str(prop.get("comuna"))
+            filtro_comuna = comuna_to_str(comuna)
 
-            if not prop_comuna:
+            if not prop_comuna or not filtro_comuna:
                 continue
 
-            # Si viene como dict, extraer nombre
-            if isinstance(prop_comuna, dict):
-                prop_comuna = prop_comuna.get("nombre")
-
-            if not isinstance(prop_comuna, str):
-                continue
-
-            if prop_comuna.lower() != comuna.lower():
+            if prop_comuna.lower() != filtro_comuna.lower():
                 continue
 
 
