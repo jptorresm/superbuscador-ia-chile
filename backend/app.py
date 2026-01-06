@@ -6,15 +6,12 @@ from backend.assistant_router import router as assistant_router
 app = FastAPI(title="SuperBuscador IA Chile")
 
 # =========================
-# CORS (OBLIGATORIO)
+# CORS — MODO COMPATIBLE ODOO
 # =========================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://www.t4global.cl",
-        "https://t4global.cl",
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],  # 👈 IMPORTANTE
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
