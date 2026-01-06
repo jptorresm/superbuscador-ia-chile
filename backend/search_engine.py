@@ -1,6 +1,6 @@
 from pathlib import Path
 import json
-from typing import List, Optional
+from typing import List, Optional, Any
 
 # =========================
 # CONFIG
@@ -18,7 +18,7 @@ def load_sources() -> List[dict]:
     Carga todos los JSON de propiedades desde data/sources
     y asegura que cada propiedad tenga source definido.
     """
-    properties = []
+    properties: List[dict] = []
 
     for file in DATA_DIR.glob("*.json"):
         with open(file, "r", encoding="utf-8") as f:
@@ -31,6 +31,47 @@ def load_sources() -> List[dict]:
 
 
 ALL_PROPERTIES = load_sources()
+
+# =========================
+# NORMALIZADORES
+# =========================
+
+def comuna_to_str(value: Any) -> Optional[str]:
+    """
+    Normaliza comuna que puede venir como:
+    - "Providencia"
+    - {"nombre": "Providencia", ...}
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        nombre = value.get("nombre")
+        return nombre.strip() if isinstance(nombre, str) else None
+    return None
+
+
+def operacion_match(prop: dict, operacion: str) -> bool:
+    """
+    Determina si una propiedad calza con la operación solicitada,
+    considerando formatos reales de datos.
+    """
+    if not operacion:
+        return True
+
+    # Caso simple
+    if prop.get("operacion") == operacion:
+        return True
+
+    # Casos clásicos Nexxos
+    if operacion == "arriendo" and prop.get("Arriendo") == "Sí":
+        return True
+
+    if operacion == "venta" and prop.get("Venta") == "Sí":
+        return True
+
+    return False
 
 # =========================
 # UTILIDADES DE PRECIO
@@ -60,7 +101,7 @@ def get_precio_arriendo(prop: dict):
 
 def cumple_precio(prop: dict, filtros: dict) -> bool:
     """
-    Regla ÚNICA y clara (tu lógica original):
+    Regla ÚNICA y clara (tu lógica original, intacta):
 
     - Venta:
         * Comparar UF si existe
@@ -111,45 +152,41 @@ def cumple_precio(prop: dict, filtros: dict) -> bool:
 # =========================
 
 def search_properties(
-    comuna: Optional[str] = None,
+    comuna: Optional[Any] = None,
     operacion: Optional[str] = None,
     precio_max_uf: Optional[int] = None,
     precio_max_clp: Optional[int] = None,
     amenities: Optional[List[str]] = None,
 ):
     """
-    Motor de búsqueda REAL.
-    Toda la lógica de filtrado vive aquí.
-    El assistant SOLO decide cuándo llamar y con qué parámetros.
+    Motor de búsqueda REAL y DEFENSIVO.
     """
 
-    results = []
+    results: List[dict] = []
+
+    filtro_comuna = comuna_to_str(comuna)
 
     for prop in ALL_PROPERTIES:
 
         # -----------------------
-        # Comuna (robusta FINAL)
+        # Comuna
         # -----------------------
-        if comuna:
+        if filtro_comuna:
             prop_comuna = comuna_to_str(prop.get("comuna"))
-            filtro_comuna = comuna_to_str(comuna)
-
-            if not prop_comuna or not filtro_comuna:
+            if not prop_comuna:
                 continue
-
             if prop_comuna.lower() != filtro_comuna.lower():
                 continue
-
 
         # -----------------------
         # Operación
         # -----------------------
         if operacion:
-            if prop.get("operacion") != operacion:
+            if not operacion_match(prop, operacion):
                 continue
 
         # -----------------------
-        # Precio (núcleo del sistema)
+        # Precio
         # -----------------------
         if not cumple_precio(
             prop,
@@ -172,3 +209,4 @@ def search_properties(
         results.append(prop)
 
     return results
+
