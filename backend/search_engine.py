@@ -1,212 +1,146 @@
-from pathlib import Path
-import json
-from typing import List, Optional, Any
+from fastapi import APIRouter
+from pydantic import BaseModel
+from typing import Optional, Dict, Any
+
+from backend.search_engine import search_properties
+
+router = APIRouter()
 
 # =========================
-# CONFIG
+# MODELO REQUEST
 # =========================
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data" / "sources"
+class AssistantRequest(BaseModel):
+    message: str
+    session_id: Optional[str] = None
 
 # =========================
-# CARGA DE DATOS
+# MEMORIA EN RAM
 # =========================
 
-def load_sources() -> List[dict]:
-    """
-    Carga todos los JSON de propiedades desde data/sources
-    y asegura que cada propiedad tenga source definido.
-    """
-    properties: List[dict] = []
+SESSIONS: Dict[str, Dict[str, Any]] = {}
 
-    for file in DATA_DIR.glob("*.json"):
-        with open(file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            for p in data:
-                p["source"] = file.stem
-                properties.append(p)
-
-    return properties
-
-
-ALL_PROPERTIES = load_sources()
+def get_session(session_id: str) -> Dict[str, Any]:
+    if session_id not in SESSIONS:
+        SESSIONS[session_id] = {}
+    return SESSIONS[session_id]
 
 # =========================
 # NORMALIZADORES
 # =========================
 
-def comuna_to_str(value: Any) -> Optional[str]:
-    """
-    Normaliza comuna que puede venir como:
-    - "Providencia"
-    - {"nombre": "Providencia", ...}
-    """
+def normalize_comuna(value: Any) -> Optional[str]:
     if value is None:
         return None
     if isinstance(value, str):
-        return value.strip()
+        return value.strip().lower()
     if isinstance(value, dict):
         nombre = value.get("nombre")
-        return nombre.strip() if isinstance(nombre, str) else None
+        if isinstance(nombre, str):
+            return nombre.strip().lower()
     return None
 
+def normalize_operacion(value: Any) -> Optional[str]:
+    if isinstance(value, str):
+        v = value.lower()
+        if v in ("venta", "arriendo"):
+            return v
+    return None
 
-def operacion_match(prop: dict, operacion: str) -> bool:
-    """
-    Determina si una propiedad calza con la operación solicitada,
-    considerando formatos reales de datos.
-    """
-    if not operacion:
-        return True
-
-    # Caso simple
-    if prop.get("operacion") == operacion:
-        return True
-
-    # Casos clásicos Nexxos
-    if operacion == "arriendo" and prop.get("Arriendo") == "Sí":
-        return True
-
-    if operacion == "venta" and prop.get("Venta") == "Sí":
-        return True
-
-    return False
-
-# =========================
-# UTILIDADES DE PRECIO
-# =========================
-
-def get_precio_venta(prop: dict):
-    precio = prop.get("precio", {}).get("venta", {})
-    if not precio.get("activo"):
+def normalize_int(value: Any) -> Optional[int]:
+    try:
+        return int(value)
+    except Exception:
         return None
+
+# =========================
+# EXTRACCIÓN SIMPLE DESDE TEXTO
+# =========================
+
+def extract_filters_from_text(text: str) -> Dict[str, Any]:
+    t = text.lower()
+    filters: Dict[str, Any] = {}
+
+    if "arriendo" in t:
+        filters["operacion"] = "arriendo"
+    elif "venta" in t:
+        filters["operacion"] = "venta"
+
+    if "providencia" in t:
+        filters["comuna"] = "providencia"
+    if "ñuñoa" in t:
+        filters["comuna"] = "ñuñoa"
+    if "las condes" in t:
+        filters["comuna"] = "las condes"
+
+    for token in t.replace(".", "").split():
+        if token.isdigit():
+            val = int(token)
+            if val > 100000:
+                filters["precio_max_clp"] = val
+
+    return filters
+
+# =========================
+# CAMPOS REQUERIDOS
+# =========================
+
+def missing_fields(state: Dict[str, Any]) -> list[str]:
+    required = ["operacion", "comuna", "precio_max_clp"]
+    return [f for f in required if not state.get(f)]
+
+def question_for(field: str) -> str:
+    if field == "operacion":
+        return "¿La buscas en venta o en arriendo?"
+    if field == "comuna":
+        return "¿En qué comuna buscas la propiedad?"
+    if field == "precio_max_clp":
+        return "¿Cuál es tu presupuesto máximo en pesos?"
+    return "¿Puedes darme un poco más de información?"
+
+# =========================
+# ENDPOINT PRINCIPAL
+# =========================
+
+@router.post("/assistant")
+def assistant(req: AssistantRequest):
+    session_id = req.session_id or "default"
+    state = get_session(session_id)
+
+    # 1️⃣ Extraer filtros nuevos
+    extracted = extract_filters_from_text(req.message)
+
+    # 2️⃣ Actualizar estado (crudo)
+    state.update(extracted)
+
+    # 3️⃣ NORMALIZAR ESTADO (CLAVE)
+    state["comuna"] = normalize_comuna(state.get("comuna"))
+    state["operacion"] = normalize_operacion(state.get("operacion"))
+    state["precio_max_clp"] = normalize_int(state.get("precio_max_clp"))
+
+    # 4️⃣ Preguntar si falta algo
+    missing = missing_fields(state)
+    if missing:
+        field = missing[0]
+        return {
+            "type": "question",
+            "message": question_for(field),
+            "state": state,
+        }
+
+    # 5️⃣ Ejecutar búsqueda (SEGURO)
+    results = search_properties(
+        comuna=state.get("comuna"),
+        operacion=state.get("operacion"),
+        precio_max_clp=state.get("precio_max_clp"),
+        precio_max_uf=None,
+        amenities=None,
+    )
+
     return {
-        "uf": precio.get("uf"),
-        "pesos": precio.get("pesos"),
-        "divisa": precio.get("divisa"),
+        "type": "results",
+        "filters": state,
+        "results": results,
     }
 
-
-def get_precio_arriendo(prop: dict):
-    precio = prop.get("precio", {}).get("arriendo", {})
-    if not precio.get("activo"):
-        return None
-    return {
-        "uf": precio.get("uf"),
-        "pesos": precio.get("pesos"),
-        "divisa": precio.get("divisa"),
-    }
-
-
-def cumple_precio(prop: dict, filtros: dict) -> bool:
-    """
-    Regla ÚNICA y clara (tu lógica original, intacta):
-
-    - Venta:
-        * Comparar UF si existe
-        * Si no, comparar CLP
-        * Si no hay datos suficientes → NO descartar
-
-    - Arriendo:
-        * Comparar CLP
-        * UF solo si explícitamente viene
-
-    - Si no hay filtros de precio → NO descartar
-    """
-
-    operacion = filtros.get("operacion")
-    max_uf = filtros.get("precio_max_uf")
-    max_clp = filtros.get("precio_max_clp")
-
-    if operacion == "venta":
-        precio = get_precio_venta(prop)
-        if not precio:
-            return False
-
-        if max_uf is not None and precio.get("uf") is not None:
-            return precio["uf"] <= max_uf
-
-        if max_clp is not None and precio.get("pesos") is not None:
-            return precio["pesos"] <= max_clp
-
-        return True
-
-    if operacion == "arriendo":
-        precio = get_precio_arriendo(prop)
-        if not precio:
-            return False
-
-        if max_clp is not None and precio.get("pesos") is not None:
-            return precio["pesos"] <= max_clp
-
-        if max_uf is not None and precio.get("uf") is not None:
-            return precio["uf"] <= max_uf
-
-        return True
-
-    return True
-
-# =========================
-# SEARCH ENGINE PRINCIPAL
-# =========================
-
-def search_properties(
-    comuna: Optional[Any] = None,
-    operacion: Optional[str] = None,
-    precio_max_uf: Optional[int] = None,
-    precio_max_clp: Optional[int] = None,
-    amenities: Optional[List[str]] = None,
-):
-    """
-    Motor de búsqueda REAL y DEFENSIVO.
-    """
-
-    results: List[dict] = []
-
-    filtro_comuna = comuna_to_str(comuna)
-
-    for prop in ALL_PROPERTIES:
-
-        # -----------------------
-        # Comuna
-        # -----------------------
-        if filtro_comuna:
-            prop_comuna = comuna_to_str(prop.get("comuna"))
-            if not prop_comuna:
-                continue
-            if prop_comuna.lower() != filtro_comuna.lower():
-                continue
-
-        # -----------------------
-        # Operación
-        # -----------------------
-        if operacion:
-            if not operacion_match(prop, operacion):
-                continue
-
-        # -----------------------
-        # Precio
-        # -----------------------
-        if not cumple_precio(
-            prop,
-            {
-                "operacion": operacion,
-                "precio_max_uf": precio_max_uf,
-                "precio_max_clp": precio_max_clp,
-            }
-        ):
-            continue
-
-        # -----------------------
-        # Amenities
-        # -----------------------
-        if amenities:
-            prop_amenities = prop.get("amenities", {})
-            if not all(prop_amenities.get(a) for a in amenities):
-                continue
-
-        results.append(prop)
-
-    return results
 
