@@ -13,7 +13,6 @@ class AssistantRequest(BaseModel):
     context: dict | None = None
 
 
-# Campos que el buscador acepta
 SEARCH_FIELDS = {
     "comuna",
     "operacion",
@@ -26,16 +25,22 @@ SEARCH_FIELDS = {
 @router.post("/assistant")
 def assistant(req: AssistantRequest):
 
-    decision = interpret_message(
-        req.message,
-        contexto_anterior=req.context
-    ) or {}
+    try:
+        decision = interpret_message(
+            req.message,
+            contexto_anterior=req.context
+        ) or {}
+    except Exception:
+        return {
+            "type": "results",
+            "summary": "No se pudo interpretar la búsqueda.",
+            "count": 0,
+            "results": [],
+            "filters": req.context or {},
+        }
 
     action = decision.get("action")
 
-    # -------------------------
-    # 🟡 PREGUNTA
-    # -------------------------
     if action == "ask":
         return {
             "type": "question",
@@ -44,9 +49,6 @@ def assistant(req: AssistantRequest):
             "filters_partial": decision.get("filters_partial", {}),
         }
 
-    # -------------------------
-    # 🟢 BÚSQUEDA
-    # -------------------------
     if action == "search":
         raw_filters = decision.get("filters", {})
 
@@ -58,13 +60,7 @@ def assistant(req: AssistantRequest):
         try:
             results = search_properties(**filters)
         except Exception:
-            return {
-                "type": "results",
-                "summary": "No se pudieron obtener resultados con los criterios actuales.",
-                "count": 0,
-                "results": [],
-                "filters": raw_filters,
-            }
+            results = []
 
         try:
             summary = explain_results(
@@ -83,10 +79,10 @@ def assistant(req: AssistantRequest):
             "filters": raw_filters,
         }
 
-    # -------------------------
-    # 🔴 FALLBACK
-    # -------------------------
     return {
-        "type": "error",
-        "message": "No pude interpretar la solicitud.",
+        "type": "results",
+        "summary": "No se encontraron resultados.",
+        "count": 0,
+        "results": [],
+        "filters": req.context or {},
     }

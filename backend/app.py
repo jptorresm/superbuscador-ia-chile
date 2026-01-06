@@ -3,12 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.assistant_router import router as assistant_router
 
-print("🔥 APP STARTING — app.py cargado")
-
 app = FastAPI(title="SuperBuscador IA Chile")
 
 # =========================
-# CORS (OBLIGATORIO)
+# CORS — DEFINITIVO
 # =========================
 
 app.add_middleware(
@@ -16,11 +14,11 @@ app.add_middleware(
     allow_origins=[
         "https://www.t4global.cl",
         "https://t4global.cl",
-        "http://localhost:3000",
         "http://localhost:8069",
+        "http://localhost:3000",
     ],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -31,9 +29,9 @@ app.add_middleware(
 app.include_router(assistant_router)
 
 # =========================
-# HEALTHCHECK
+# ROOT / HEALTH
 # =========================
 
 @app.get("/")
-def health():
+def root():
     return {"status": "ok"}
