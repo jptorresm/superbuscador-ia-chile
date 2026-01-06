@@ -11,6 +11,8 @@ ALL_PROPERTIES = load_sources()
 # NORMALIZADORES
 # =========================
 
+UF_REFERENCIA = 37000  # usa el mismo valor que ya venías usando
+
 def comuna_to_str(value: Any) -> Optional[str]:
     if value is None:
         return None
@@ -39,88 +41,80 @@ def operacion_match(prop: dict, operacion: str) -> bool:
     return False
 
 # =========================
-# PRECIOS (BLINDADO)
+# PRECIOS (LECTURA CORRECTA NEXXOS)
 # =========================
 
-def get_precio_venta(prop: dict):
+def get_precio_bloque(prop: dict, operacion: str) -> Optional[dict]:
+    """
+    Devuelve el bloque de precio activo (venta / arriendo)
+    """
     precio_root = prop.get("precio")
     if not isinstance(precio_root, dict):
         return None
 
-    precio = precio_root.get("venta")
-    if not isinstance(precio, dict):
+    bloque = precio_root.get(operacion)
+    if not isinstance(bloque, dict):
         return None
 
-    if not precio.get("activo"):
+    if not bloque.get("activo"):
         return None
 
-    return precio
+    return bloque
 
 
-def get_precio_arriendo(prop: dict):
-    precio_root = prop.get("precio")
-    if not isinstance(precio_root, dict):
-        return None
-
-    precio = precio_root.get("arriendo")
-    if not isinstance(precio, dict):
-        return None
-
-    if not precio.get("activo"):
-        return None
-
-    return precio
+def get_precio_valido(bloque: dict) -> Optional[float]:
+    """
+    Nexxos NO garantiza en qué celda viene el valor real.
+    Se toma el primer valor > 0 en este orden:
+    principal → pesos → uf
+    """
+    for key in ("principal", "pesos", "uf"):
+        val = bloque.get(key)
+        if isinstance(val, (int, float)) and val > 0:
+            return val
+    return None
 
 
 def cumple_precio(prop: dict, filtros: dict) -> bool:
     """
-    Lógica ORIGINAL:
-    - Venta → UF primero, luego CLP
-    - Arriendo → CLP primero
-    - Si no hay datos suficientes → NO descartar
+    Lógica CORRECTA para Nexxos:
+    - Lee la celda correcta
+    - Respeta la moneda
+    - No deja pasar precios 0
     """
 
     operacion = filtros.get("operacion")
     max_uf = filtros.get("precio_max_uf")
     max_clp = filtros.get("precio_max_clp")
 
-    # -----------------------
-    # VENTA
-    # -----------------------
-    if operacion == "venta":
-        precio = get_precio_venta(prop)
-        if not precio:
-            return False
-
-        uf = precio.get("uf")
-        clp = precio.get("pesos")
-
-        if max_uf is not None and uf is not None:
-            return uf <= max_uf
-
-        if max_clp is not None and clp is not None:
-            return clp <= max_clp
-
+    if not operacion:
         return True
 
+    bloque = get_precio_bloque(prop, operacion)
+    if not bloque:
+        return False
+
+    valor = get_precio_valido(bloque)
+    if valor is None:
+        return False
+
+    divisa = bloque.get("divisa")
+
     # -----------------------
-    # ARRIENDO
+    # FILTRO EN CLP
     # -----------------------
-    if operacion == "arriendo":
-        precio = get_precio_arriendo(prop)
-        if not precio:
-            return False
+    if max_clp is not None:
+        if divisa == "UF":
+            return valor * UF_REFERENCIA <= max_clp
+        return valor <= max_clp
 
-        clp = precio.get("pesos")
-        uf = precio.get("uf")
-
-        if max_clp is not None and clp is not None:
-            return clp <= max_clp
-
-        if max_uf is not None and uf is not None:
-            return uf <= max_uf
-
-        return True
+    # -----------------------
+    # FILTRO EN UF
+    # -----------------------
+    if max_uf is not None:
+        if divisa == "UF":
+            return valor <= max_uf
+        return (valor / UF_REFERENCIA) <= max_uf
 
     return True
 
@@ -182,6 +176,10 @@ def search_properties(
         results.append(prop)
 
     return results
+
+# =========================
+# JSON SAFE (ANTI-NaN)
+# =========================
 
 import math
 
