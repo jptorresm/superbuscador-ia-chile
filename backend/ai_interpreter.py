@@ -18,16 +18,20 @@ FIELD_DEFINITIONS = {
     "precio_max_clp": {
         "required": False,
         "priority": 3,
-        "question": "¿Cuál es tu presupuesto máximo?",
+        "question": "¿Cuál es tu presupuesto máximo en pesos?",
+        "group": "precio",
     },
     "precio_max_uf": {
         "required": False,
         "priority": 3,
         "question": "¿Cuál es tu presupuesto máximo en UF?",
+        "group": "precio",
     },
-    # 👇 futuros campos se agregan AQUÍ, sin tocar lógica
-    # "amoblado": {...}
-    # "mascotas": {...}
+}
+
+# Campos equivalentes (uno resuelve al grupo)
+FIELD_GROUPS = {
+    "precio": ["precio_max_clp", "precio_max_uf"]
 }
 
 # =========================
@@ -67,7 +71,15 @@ def extract_precio(text):
     return {}
 
 # =========================
-# INTERPRETADOR GENÉRICO
+# UTILIDADES
+# =========================
+
+def group_is_resolved(group_name, context):
+    fields = FIELD_GROUPS.get(group_name, [])
+    return any(f in context for f in fields)
+
+# =========================
+# INTERPRETADOR PRINCIPAL
 # =========================
 
 def interpret_message(message: str, contexto_anterior: dict | None = None) -> dict:
@@ -89,11 +101,20 @@ def interpret_message(message: str, contexto_anterior: dict | None = None) -> di
     pending = []
 
     for field, meta in FIELD_DEFINITIONS.items():
-        if field not in context:
-            if meta["required"]:
-                pending.append((meta["priority"], field))
-            else:
-                pending.append((meta["priority"] + 10, field))
+        # ya está resuelto
+        if field in context:
+            continue
+
+        # pertenece a un grupo ya resuelto
+        group = meta.get("group")
+        if group and group_is_resolved(group, context):
+            continue
+
+        # requerido
+        if meta["required"]:
+            pending.append((meta["priority"], field))
+        else:
+            pending.append((meta["priority"] + 10, field))
 
     if pending:
         pending.sort()
@@ -105,7 +126,6 @@ def interpret_message(message: str, contexto_anterior: dict | None = None) -> di
             "filters_partial": context,
         }
 
-    # --- listo para buscar ---
     return {
         "action": "search",
         "filters": context,
