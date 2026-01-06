@@ -1,24 +1,28 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.assistant_router import router
+from backend.assistant_router import router as assistant_router
 
 app = FastAPI(title="SuperBuscador IA Chile")
 
 # =========================
-# CORS (simple)
+# CORS (OBLIGATORIO)
 # =========================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["POST", "OPTIONS"],
+    allow_origins=[
+        "https://www.t4global.cl",
+        "https://t4global.cl",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # =========================
-# ROUTER
+# ROUTERS
 # =========================
-app.include_router(router)
+app.include_router(assistant_router)
 
 @app.get("/")
 def root():
