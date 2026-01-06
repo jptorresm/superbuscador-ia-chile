@@ -5,22 +5,19 @@ from backend.assistant_router import router as assistant_router
 
 app = FastAPI(title="SuperBuscador IA Chile")
 
-# =========================
-# CORS — MODO COMPATIBLE ODOO
-# =========================
+# CORS (Render + Worker, pero no molesta)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 👈 IMPORTANTE
-    allow_credentials=False,
+    allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# =========================
-# ROUTERS
-# =========================
+# Router del asistente
 app.include_router(assistant_router)
 
 @app.get("/")
-def root():
+def health():
     return {"status": "ok"}
+
