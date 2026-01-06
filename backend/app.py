@@ -1,25 +1,22 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from backend.assistant_router import router as assistant_router
 
 app = FastAPI(title="SuperBuscador IA Chile")
 
 # =========================
-# CORS — DEFINITIVO
+# CORS — MODO SEGURO
 # =========================
+# (para desarrollo / integración externa)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://www.t4global.cl",
-        "https://t4global.cl",
-        "http://localhost:8069",
-        "http://localhost:3000",
-    ],
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_origins=["*"],   # ⚠️ importante para aislar el problema
+    allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=False,
 )
 
 # =========================
@@ -29,7 +26,23 @@ app.add_middleware(
 app.include_router(assistant_router)
 
 # =========================
-# ROOT / HEALTH
+# CATCH GLOBAL DE ERRORES
+# =========================
+# ⚠️ ESTO ES CLAVE
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=200,   # 👈 evita 500
+        content={
+            "type": "error",
+            "message": "Error interno controlado",
+            "detail": str(exc),
+        },
+    )
+
+# =========================
+# HEALTHCHECK
 # =========================
 
 @app.get("/")
