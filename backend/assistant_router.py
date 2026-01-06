@@ -36,11 +36,14 @@ def assistant(req: AssistantRequest):
 
         try:
             results = search_properties(**filters)
-        except Exception as e:
-            return {
-                "type": "error",
-                "message": str(e)
-            }
+       except Exception as e:
+        return {
+        "type": "results",
+        "summary": "No se pudieron filtrar resultados con los criterios actuales.",
+        "count": 0,
+        "results": [],
+        "filters": raw_filters,
+    }
 
         try:
             summary = explain_results(
