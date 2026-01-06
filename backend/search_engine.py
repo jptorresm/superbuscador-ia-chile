@@ -7,11 +7,11 @@ from backend.data_loader import load_sources
 
 ALL_PROPERTIES = load_sources()
 
+UF_REFERENCIA = 37000  # valor de referencia estable
+
 # =========================
 # NORMALIZADORES
 # =========================
-
-UF_REFERENCIA = 37000  # usa el mismo valor que ya venías usando
 
 def comuna_to_str(value: Any) -> Optional[str]:
     if value is None:
@@ -26,27 +26,34 @@ def comuna_to_str(value: Any) -> Optional[str]:
 
 
 def operacion_match(prop: dict, operacion: str) -> bool:
+    """
+    Acepta múltiples formas reales de Nexxos / enriched
+    """
     if not operacion:
         return True
 
+    # forma directa
     if prop.get("operacion") == operacion:
         return True
 
-    if operacion == "arriendo" and prop.get("Arriendo") == "Sí":
-        return True
+    # formas típicas Nexxos
+    if operacion == "arriendo":
+        return prop.get("Arriendo") == "Sí" or prop.get("arriendo") is True
 
-    if operacion == "venta" and prop.get("Venta") == "Sí":
-        return True
+    if operacion == "venta":
+        return prop.get("Venta") == "Sí" or prop.get("venta") is True
 
     return False
 
 # =========================
-# PRECIOS (LECTURA CORRECTA NEXXOS)
+# PRECIOS (CONTRATO REAL ENRICHED)
 # =========================
 
 def get_precio_bloque(prop: dict, operacion: str) -> Optional[dict]:
     """
-    Devuelve el bloque de precio activo (venta / arriendo)
+    En enriched:
+    - si existe precio.principal > 0 → es válido
+    - NO dependemos de flags 'activo'
     """
     precio_root = prop.get("precio")
     if not isinstance(precio_root, dict):
@@ -56,33 +63,14 @@ def get_precio_bloque(prop: dict, operacion: str) -> Optional[dict]:
     if not isinstance(bloque, dict):
         return None
 
-    if not bloque.get("activo"):
-        return None
+    principal = bloque.get("principal")
+    if isinstance(principal, (int, float)) and principal > 0:
+        return bloque
 
-    return bloque
-
-
-def get_precio_valido(bloque: dict) -> Optional[float]:
-    """
-    Nexxos NO garantiza en qué celda viene el valor real.
-    Se toma el primer valor > 0 en este orden:
-    principal → pesos → uf
-    """
-    for key in ("principal", "pesos", "uf"):
-        val = bloque.get(key)
-        if isinstance(val, (int, float)) and val > 0:
-            return val
     return None
 
 
 def cumple_precio(prop: dict, filtros: dict) -> bool:
-    """
-    Lógica CORRECTA para Nexxos:
-    - Lee la celda correcta
-    - Respeta la moneda
-    - No deja pasar precios 0
-    """
-
     operacion = filtros.get("operacion")
     max_uf = filtros.get("precio_max_uf")
     max_clp = filtros.get("precio_max_clp")
@@ -94,11 +82,11 @@ def cumple_precio(prop: dict, filtros: dict) -> bool:
     if not bloque:
         return False
 
-    valor = get_precio_valido(bloque)
-    if valor is None:
-        return False
-
+    valor = bloque.get("principal")
     divisa = bloque.get("divisa")
+
+    if not isinstance(valor, (int, float)) or valor <= 0:
+        return False
 
     # -----------------------
     # FILTRO EN CLP
@@ -136,13 +124,13 @@ def search_properties(
     for prop in ALL_PROPERTIES:
 
         # -----------------------
-        # Comuna
+        # Comuna (tolerante)
         # -----------------------
         if filtro_comuna:
             prop_comuna = comuna_to_str(prop.get("comuna"))
             if not prop_comuna:
                 continue
-            if prop_comuna.lower() != filtro_comuna.lower():
+            if filtro_comuna.lower() not in prop_comuna.lower():
                 continue
 
         # -----------------------
