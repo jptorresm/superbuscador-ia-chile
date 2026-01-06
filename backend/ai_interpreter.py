@@ -1,131 +1,112 @@
 import re
 
 # =========================
-# CONFIGURACIÓN BASE
+# DEFINICIÓN DECLARATIVA
 # =========================
 
-CAMPOS_REQUERIDOS = [
-    "comuna",
-    "operacion",
-]
-
-# Preguntas específicas por campo
-PREGUNTAS = {
-    "comuna": "¿En qué comuna buscas la propiedad?",
-    "operacion": "¿La buscas en venta o en arriendo?",
-    "precio_max_clp": "¿Cuál es tu presupuesto máximo en pesos?",
-    "precio_max_uf": "¿Cuál es tu presupuesto máximo en UF?",
+FIELD_DEFINITIONS = {
+    "comuna": {
+        "required": True,
+        "priority": 1,
+        "question": "¿En qué comuna buscas la propiedad?",
+    },
+    "operacion": {
+        "required": True,
+        "priority": 2,
+        "question": "¿La buscas en venta o en arriendo?",
+    },
+    "precio_max_clp": {
+        "required": False,
+        "priority": 3,
+        "question": "¿Cuál es tu presupuesto máximo?",
+    },
+    "precio_max_uf": {
+        "required": False,
+        "priority": 3,
+        "question": "¿Cuál es tu presupuesto máximo en UF?",
+    },
+    # 👇 futuros campos se agregan AQUÍ, sin tocar lógica
+    # "amoblado": {...}
+    # "mascotas": {...}
 }
 
 # =========================
 # EXTRACCIÓN BÁSICA
 # =========================
 
-def extraer_comuna(texto: str):
+def extract_comuna(text):
     comunas = [
         "providencia", "las condes", "vitacura", "ñuñoa",
-        "la reina", "santiago", "macul", "peñalolén"
+        "la reina", "macul", "peñalolén", "santiago"
     ]
     for c in comunas:
-        if c in texto:
+        if c in text:
             return c.title()
     return None
 
 
-def extraer_operacion(texto: str):
-    if "arriendo" in texto or "arrendar" in texto:
+def extract_operacion(text):
+    if "arriendo" in text:
         return "arriendo"
-    if "venta" in texto or "vender" in texto:
+    if "venta" in text:
         return "venta"
     return None
 
 
-def extraer_precio(texto: str):
-    """
-    Detecta precios tipo:
-    - 900.000
-    - 900000
-    - 900 mil
-    - 10.000 uf
-    """
-    texto = texto.lower()
+def extract_precio(text):
+    text = text.lower()
 
-    # UF
-    match_uf = re.search(r"([\d\.]+)\s*uf", texto)
+    match_uf = re.search(r"([\d\.]+)\s*uf", text)
     if match_uf:
-        valor = match_uf.group(1).replace(".", "")
-        return {
-            "precio_max_uf": int(valor)
-        }
+        return {"precio_max_uf": int(match_uf.group(1).replace(".", ""))}
 
-    # CLP
-    match_clp = re.search(r"([\d\.]+)", texto)
+    match_clp = re.search(r"([\d\.]{5,})", text)
     if match_clp:
-        valor = match_clp.group(1).replace(".", "")
-        if len(valor) >= 5:
-            return {
-                "precio_max_clp": int(valor)
-            }
+        return {"precio_max_clp": int(match_clp.group(1).replace(".", ""))}
 
     return {}
 
-
 # =========================
-# INTERPRETADOR PRINCIPAL
+# INTERPRETADOR GENÉRICO
 # =========================
 
 def interpret_message(message: str, contexto_anterior: dict | None = None) -> dict:
-    """
-    Interpreta el mensaje del usuario de forma acumulativa.
-    """
+    text = message.lower().strip()
+    context = contexto_anterior.copy() if contexto_anterior else {}
 
-    texto = message.lower().strip()
-    filtros = contexto_anterior.copy() if contexto_anterior else {}
-
-    # -------------------------
-    # EXTRAER INTENCIÓN
-    # -------------------------
-
-    comuna = extraer_comuna(texto)
+    # --- extracción incremental ---
+    comuna = extract_comuna(text)
     if comuna:
-        filtros["comuna"] = comuna
+        context["comuna"] = comuna
 
-    operacion = extraer_operacion(texto)
+    operacion = extract_operacion(text)
     if operacion:
-        filtros["operacion"] = operacion
+        context["operacion"] = operacion
 
-    precio = extraer_precio(texto)
-    filtros.update(precio)
+    context.update(extract_precio(text))
 
-    # -------------------------
-    # VALIDAR CAMPOS CLAVE
-    # -------------------------
+    # --- decidir siguiente paso ---
+    pending = []
 
-    faltantes = []
+    for field, meta in FIELD_DEFINITIONS.items():
+        if field not in context:
+            if meta["required"]:
+                pending.append((meta["priority"], field))
+            else:
+                pending.append((meta["priority"] + 10, field))
 
-    for campo in CAMPOS_REQUERIDOS:
-        if campo not in filtros:
-            faltantes.append(campo)
-
-    # -------------------------
-    # DECISIÓN FINAL
-    # -------------------------
-
-    # Caso 1: faltan campos → preguntar algo CONCRETO
-    if faltantes:
-        campo = faltantes[0]
+    if pending:
+        pending.sort()
+        next_field = pending[0][1]
         return {
             "action": "ask",
-            "message": PREGUNTAS.get(
-                campo,
-                "¿Puedes darme un poco más de información?"
-            ),
-            "missing_fields": faltantes,
-            "filters_partial": filtros,
+            "message": FIELD_DEFINITIONS[next_field]["question"],
+            "missing_fields": [next_field],
+            "filters_partial": context,
         }
 
-    # Caso 2: ya tenemos lo mínimo → buscar
+    # --- listo para buscar ---
     return {
         "action": "search",
-        "filters": filtros
+        "filters": context,
     }
