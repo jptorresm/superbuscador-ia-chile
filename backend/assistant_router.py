@@ -13,6 +13,16 @@ class AssistantRequest(BaseModel):
     context: dict | None = None
 
 
+# Campos que el buscador acepta
+SEARCH_FIELDS = {
+    "comuna",
+    "operacion",
+    "precio_max_uf",
+    "precio_max_clp",
+    "amenities",
+}
+
+
 @router.post("/assistant")
 def assistant(req: AssistantRequest):
 
@@ -23,6 +33,9 @@ def assistant(req: AssistantRequest):
 
     action = decision.get("action")
 
+    # -------------------------
+    # 🟡 PREGUNTA
+    # -------------------------
     if action == "ask":
         return {
             "type": "question",
@@ -31,19 +44,27 @@ def assistant(req: AssistantRequest):
             "filters_partial": decision.get("filters_partial", {}),
         }
 
+    # -------------------------
+    # 🟢 BÚSQUEDA
+    # -------------------------
     if action == "search":
-        filters = decision.get("filters", {})
+        raw_filters = decision.get("filters", {})
+
+        filters = {
+            k: v for k, v in raw_filters.items()
+            if k in SEARCH_FIELDS and v is not None
+        }
 
         try:
             results = search_properties(**filters)
-       except Exception as e:
-        return {
-        "type": "results",
-        "summary": "No se pudieron filtrar resultados con los criterios actuales.",
-        "count": 0,
-        "results": [],
-        "filters": raw_filters,
-    }
+        except Exception:
+            return {
+                "type": "results",
+                "summary": "No se pudieron obtener resultados con los criterios actuales.",
+                "count": 0,
+                "results": [],
+                "filters": raw_filters,
+            }
 
         try:
             summary = explain_results(
@@ -59,10 +80,13 @@ def assistant(req: AssistantRequest):
             "summary": summary,
             "count": len(results),
             "results": results,
-            "filters": filters,
+            "filters": raw_filters,
         }
 
+    # -------------------------
+    # 🔴 FALLBACK
+    # -------------------------
     return {
         "type": "error",
-        "message": "No pude interpretar la solicitud."
+        "message": "No pude interpretar la solicitud.",
     }
