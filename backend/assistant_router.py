@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
+import re
 
 from backend.search_engine import search_properties
 
@@ -16,62 +17,52 @@ class AssistantRequest(BaseModel):
 
 
 # =========================
-# MEMORIA EN RAM (simple)
+# UTILIDADES ROBUSTAS
 # =========================
 
-SESSIONS: Dict[str, Dict[str, Any]] = {}
+def safe_lower(val):
+    return val.lower() if isinstance(val, str) else ""
 
-
-def get_session(session_id: str) -> Dict[str, Any]:
-    if session_id not in SESSIONS:
-        SESSIONS[session_id] = {}
-    return SESSIONS[session_id]
-
-
-# =========================
-# UTILIDADES
-# =========================
 
 def extract_filters_from_text(text: str) -> Dict[str, Any]:
-    t = text.lower()
+    """
+    Parser tolerante a lenguaje natural real.
+    Nunca lanza excepción.
+    """
+    t = safe_lower(text)
+    filters: Dict[str, Any] = {}
 
-    filters = {}
-
+    # -----------------------
+    # Operación
+    # -----------------------
     if "arriendo" in t:
         filters["operacion"] = "arriendo"
     elif "venta" in t:
         filters["operacion"] = "venta"
 
-    if "providencia" in t:
-        filters["comuna"] = "providencia"
-    if "ñuñoa" in t:
-        filters["comuna"] = "ñuñoa"
-    if "las condes" in t:
-        filters["comuna"] = "las condes"
+    # -----------------------
+    # Comuna
+    # -----------------------
+    comunas = ["providencia", "ñuñoa", "las condes", "vitacura", "la reina"]
+    for c in comunas:
+        if c in t:
+            filters["comuna"] = c
+            break
 
-    # precio simple (CLP)
-    for token in t.replace(".", "").split():
-        if token.isdigit():
-            value = int(token)
+    # -----------------------
+    # Precio CLP
+    # -----------------------
+    # acepta: 900000, 900.000, hasta 900 mil, etc.
+    numbers = re.findall(r"\d{3,}", t.replace(".", ""))
+    if numbers:
+        try:
+            value = int(numbers[0])
             if value > 100000:
                 filters["precio_max_clp"] = value
+        except Exception:
+            pass
 
     return filters
-
-
-def missing_fields(state: Dict[str, Any]) -> list[str]:
-    required = ["operacion", "comuna", "precio_max_clp"]
-    return [f for f in required if f not in state]
-
-
-def question_for(field: str) -> str:
-    if field == "operacion":
-        return "¿La buscas en venta o en arriendo?"
-    if field == "comuna":
-        return "¿En qué comuna buscas la propiedad?"
-    if field == "precio_max_clp":
-        return "¿Cuál es tu presupuesto máximo en pesos?"
-    return "¿Puedes darme un poco más de información?"
 
 
 # =========================
@@ -80,31 +71,38 @@ def question_for(field: str) -> str:
 
 @router.post("/assistant")
 def assistant(req: AssistantRequest):
-    session_id = req.session_id or "default"
-    state = get_session(session_id)
+    """
+    Endpoint BLINDADO:
+    - Nunca pregunta
+    - Nunca hace loop
+    - Nunca lanza 500 por texto raro
+    - Siempre intenta buscar
+    """
 
-    # 1️⃣ Extraer filtros del mensaje actual
-    new_filters = extract_filters_from_text(req.message)
+    message = req.message or ""
 
-    # 2️⃣ Actualizar estado acumulado
-    state.update(new_filters)
+    # 1️⃣ Extraer filtros desde texto libre
+    filters = extract_filters_from_text(message)
 
-    # 3️⃣ Ver qué falta
-    missing = missing_fields(state)
-
-    if missing:
-        field = missing[0]
+    # 2️⃣ Ejecutar búsqueda con lo que haya
+    try:
+        results = search_properties(
+            comuna=filters.get("comuna"),
+            operacion=filters.get("operacion"),
+            precio_max_clp=filters.get("precio_max_clp"),
+        )
+    except Exception as e:
+        # ⚠️ Jamás devolver 500 por error de parsing
         return {
-            "type": "question",
-            "message": question_for(field),
-            "state": state,
+            "type": "results",
+            "filters": filters,
+            "results": [],
+            "error": "Error interno al buscar propiedades",
         }
 
-    # 4️⃣ Ejecutar búsqueda (YA NO LOOPA)
-    results = search_properties(state)
-
+    # 3️⃣ Respuesta estándar
     return {
         "type": "results",
-        "filters": state,
+        "filters": filters,
         "results": results,
     }
