@@ -70,38 +70,27 @@ def extract_filters_from_text(text: str) -> Dict[str, Any]:
 
 @router.post("/assistant")
 def assistant(req: AssistantRequest):
-    """
-    Endpoint BLINDADO:
-    - Nunca pregunta
-    - Nunca hace loop
-    - Nunca lanza 500 por texto raro
-    - Siempre intenta buscar
-    """
-
-    message = req.message or ""
-
-    # 1️⃣ Extraer filtros desde texto libre
-    filters = extract_filters_from_text(message)
-
-    # 2️⃣ Ejecutar búsqueda con lo que haya
     try:
+        message = req.message or ""
+
+        filters = extract_filters_from_text(message) or {}
+
         results = search_properties(
             comuna=filters.get("comuna"),
             operacion=filters.get("operacion"),
             precio_max_clp=filters.get("precio_max_clp"),
+            precio_max_uf=filters.get("precio_max_uf"),
         )
-    except Exception:
+
         return {
             "type": "results",
             "filters": filters,
-            "results": [],
-            "error": "Error interno al buscar propiedades",
+            "results": results or [],
         }
 
-    # 3️⃣ Respuesta estándar (SANITIZADA)
-    return {
-        "type": "results",
-        "filters": filters,
-        "results": results,
-    }
-
+    except Exception as e:
+        # 🔥 Nunca más un 500 silencioso
+        return {
+            "type": "error",
+            "message": str(e),
+        }
