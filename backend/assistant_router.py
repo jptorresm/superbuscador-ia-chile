@@ -1,6 +1,4 @@
 # backend/assistant_router.py
-print("🧠 assistant_router starting")
-
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional
@@ -16,15 +14,17 @@ class AssistantRequest(BaseModel):
 
 @router.post("/assistant")
 def assistant(req: AssistantRequest):
-    results = search_properties(operacion="arriendo")
+    # hardcode inicial para validar pipeline
+    results = search_properties(
+        operacion="arriendo",
+        comuna="Providencia"
+    )
 
-    response = {
+    return clean_for_json({
         "type": "results",
         "filters": {
-            "operacion": "arriendo"
+            "operacion": "arriendo",
+            "comuna": "Providencia"
         },
-        "results": results[:5]  # limitamos para debug
-    }
-
-    # 🔥 CLAVE: limpiar antes de devolver
-    return clean_for_json(response)
+        "results": results[:10]
+    })
