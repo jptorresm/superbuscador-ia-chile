@@ -13,40 +13,57 @@ def to_bool(val):
     return str(val).strip().lower() in ("sí", "si", "true", "1")
 
 
-def enrich_property(raw: dict) -> dict:
-    # Flags de operación desde Nexxos
-    en_venta = to_bool(raw.get("Venta"))
-    en_arriendo = to_bool(raw.get("Arriendo"))
+def normalize_operacion(raw: dict) -> str | None:
+    """
+    Nexxos YA trae la operación normalizada
+    """
+    op = raw.get("operacion")
+    if isinstance(op, str):
+        op = op.strip().lower()
+        if op in ("venta", "arriendo"):
+            return op
+    return None
 
-    precio_ppal = raw.get("Precio ppal.")
-    moneda = raw.get("Divisa ppal.")
 
-    precio = {
-        "venta": None,
-        "arriendo": None
-    }
+def normalize_precio(raw: dict) -> dict:
+    """
+    Usamos precio_normalizado + precio_moneda
+    No reinterpretamos venta/arriendo
+    """
+    valor = raw.get("precio_normalizado")
+    moneda = raw.get("precio_moneda")
 
-    if en_venta and precio_ppal:
-        precio["venta"] = {
-            "valor": precio_ppal,
-            "moneda": moneda
+    if valor is None or moneda is None:
+        return {
+            "valor": None,
+            "moneda": None
         }
 
-    if en_arriendo and precio_ppal:
-        precio["arriendo"] = {
-            "valor": precio_ppal,
-            "moneda": moneda
-        }
+    try:
+        valor = float(valor)
+    except Exception:
+        valor = None
 
     return {
-        "id": raw.get("id") or raw.get("codigo"),
-        "source": "nexxos",
-        "source_id": raw.get("codigo"),
-        "link": raw.get("link"),
-        "estado": raw.get("estado", "").lower(),
-        "publicada_web": to_bool(raw.get("publicada_web")),
-        "operacion": "venta" if en_venta else "arriendo" if en_arriendo else None,
+        "valor": valor,
+        "moneda": moneda
+    }
 
+
+def enrich_property(raw: dict) -> dict:
+    operacion = normalize_operacion(raw)
+    precio = normalize_precio(raw)
+
+    return {
+        "id": raw.get("id") or f"nexxos-{raw.get('codigo')}",
+        "source": "nexxos",
+        "source_id": raw.get("source_id") or raw.get("codigo"),
+        "link": raw.get("link"),
+        "estado": str(raw.get("estado", "")).lower(),
+        "publicada_web": to_bool(raw.get("publicada_web")),
+        "operacion": operacion,
+
+        # 👇 CONTRATO ÚNICO Y SIMPLE
         "precio": precio,
 
         "ubicacion": {
@@ -80,3 +97,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
