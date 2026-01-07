@@ -1,4 +1,3 @@
-from backend.search_engine import clean_for_json
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
@@ -92,17 +91,17 @@ def assistant(req: AssistantRequest):
             precio_max_clp=filters.get("precio_max_clp"),
         )
     except Exception:
-        return clean_for_json({
+        return {
             "type": "results",
             "filters": filters,
             "results": [],
             "error": "Error interno al buscar propiedades",
-        })
+        }
 
     # 3️⃣ Respuesta estándar (SANITIZADA)
-    return clean_for_json({
+    return {
         "type": "results",
         "filters": filters,
         "results": results,
-    })
+    }
 
