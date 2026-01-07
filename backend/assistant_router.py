@@ -5,23 +5,20 @@ print("🧠 assistant_router starting")
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional
+from backend.search_engine import search_properties
 
 router = APIRouter()
-
-print("✅ APIRouter created")
 
 class AssistantRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
 
-print("✅ Pydantic model loaded")
-
 @router.post("/assistant")
 def assistant(req: AssistantRequest):
+    results = search_properties(operacion="arriendo")
+
     return {
         "type": "results",
-        "filters": {"debug": True},
-        "results": [],
+        "filters": {"operacion": "arriendo"},
+        "results": results[:5],
     }
-
-print("✅ /assistant route registered")
