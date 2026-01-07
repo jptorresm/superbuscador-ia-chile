@@ -1,5 +1,4 @@
 # backend/assistant_router.py
-
 print("🧠 assistant_router starting")
 
 from fastapi import APIRouter
@@ -16,7 +15,6 @@ class AssistantRequest(BaseModel):
 @router.post("/assistant")
 def assistant(req: AssistantRequest):
     results = search_properties(operacion="arriendo")
-
     return {
         "type": "results",
         "filters": {"operacion": "arriendo"},

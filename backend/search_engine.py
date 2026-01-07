@@ -1,64 +1,58 @@
+# backend/search_engine.py
+print("🧠 search_engine imported")
+
 from typing import List, Optional, Any
-from backend.data_loader import load_sources
+from backend.data_loader import load_enriched
 
-ALL_PROPERTIES = load_sources()
-
-
-def comuna_match(prop: dict, comuna: Optional[str]) -> bool:
-    if not comuna:
-        return True
-    ubicacion = prop.get("ubicacion", {})
-    return ubicacion.get("comuna", "").lower() == comuna.lower()
-
+def comuna_to_str(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        nombre = value.get("nombre")
+        if isinstance(nombre, str):
+            return nombre.strip()
+    return None
 
 def operacion_match(prop: dict, operacion: Optional[str]) -> bool:
     if not operacion:
         return True
     return prop.get("operacion") == operacion
 
-
-def precio_match(prop: dict, precio_max_clp: Optional[int], precio_max_uf: Optional[int]) -> bool:
-    """
-    Lógica REAL según enriched:
-    - El precio está en precio.valor + precio.moneda
-    - Si no hay precio → NO FILTRAR
-    """
-
-    precio = prop.get("precio", {})
-    valor = precio.get("valor")
-    moneda = precio.get("moneda")
-
-    if valor is None or moneda is None:
-        return True  # no descartamos
-
-    if moneda == "CLP" and precio_max_clp is not None:
-        return valor <= precio_max_clp
-
-    if moneda == "UF" and precio_max_uf is not None:
-        return valor <= precio_max_uf
-
+def cumple_precio(prop: dict, filtros: dict) -> bool:
+    # Por ahora, no filtrar por precio (evita edge cases mientras cerramos Render)
     return True
 
-
 def search_properties(
-    comuna: Optional[str] = None,
+    comuna: Optional[Any] = None,
     operacion: Optional[str] = None,
-    precio_max_clp: Optional[int] = None,
     precio_max_uf: Optional[int] = None,
+    precio_max_clp: Optional[int] = None,
+    amenities: Optional[List[str]] = None,
 ):
+    print("🔍 search_properties called")
+
+    properties = load_enriched()
     results: List[dict] = []
 
-    for prop in ALL_PROPERTIES:
+    filtro_comuna = comuna_to_str(comuna)
 
-        if not comuna_match(prop, comuna):
+    for prop in properties:
+        if filtro_comuna:
+            prop_comuna = comuna_to_str(prop.get("ubicacion", {}).get("comuna"))
+            if not prop_comuna or prop_comuna.lower() != filtro_comuna.lower():
+                continue
+
+        if operacion and not operacion_match(prop, operacion):
             continue
 
-        if not operacion_match(prop, operacion):
-            continue
-
-        if not precio_match(prop, precio_max_clp, precio_max_uf):
-            continue
+        if amenities:
+            prop_amenities = prop.get("amenities", {})
+            if not all(prop_amenities.get(a) for a in amenities):
+                continue
 
         results.append(prop)
 
+    print(f"✅ search_properties results: {len(results)}")
     return results
