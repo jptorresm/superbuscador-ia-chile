@@ -1,20 +1,18 @@
-# backend/data_loader.py
-from pathlib import Path
-import json
+from backend.data_bootstrap import bootstrap_data
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-ENRICHED_FILE = BASE_DIR / "data" / "enriched" / "nexxos_enriched.json"
+# Cache simple en memoria (evita re-bootstrapping en cada request)
+_DATA_CACHE = None
 
-def load_enriched():
-    print("📦 data_loader.load_enriched() called")
-    print("📍 ENRICHED_FILE =", ENRICHED_FILE)
-    print("📍 exists =", ENRICHED_FILE.exists())
 
-    if not ENRICHED_FILE.exists():
-        raise RuntimeError(f"Missing enriched file: {ENRICHED_FILE}")
+def load_sources(force_reload: bool = False):
+    """
+    Carga las propiedades ya enriquecidas y normalizadas.
+    Esta es la ÚNICA puerta de entrada de datos al sistema.
+    """
 
-    with open(ENRICHED_FILE, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    global _DATA_CACHE
 
-    print(f"✅ enriched loaded: {len(data)} records")
-    return data
+    if _DATA_CACHE is None or force_reload:
+        _DATA_CACHE = bootstrap_data()
+
+    return _DATA_CACHE
