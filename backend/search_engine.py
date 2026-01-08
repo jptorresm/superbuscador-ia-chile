@@ -73,15 +73,28 @@ def search_properties(
 
     filtro_comuna = comuna_to_str(comuna)
 
+    filtros = {
+        "operacion": operacion,
+        "precio_max_uf": precio_max_uf,
+        "precio_max_clp": precio_max_clp,
+    }
+
     for prop in properties:
+        # --- comuna
         if filtro_comuna:
             prop_comuna = comuna_to_str(prop.get("ubicacion", {}).get("comuna"))
             if not prop_comuna or prop_comuna.lower() != filtro_comuna.lower():
                 continue
 
+        # --- operación
         if operacion and not operacion_match(prop, operacion):
             continue
 
+        # --- precio (🔥 ESTO FALTABA)
+        if not cumple_precio(prop, filtros):
+            continue
+
+        # --- amenities
         if amenities:
             prop_amenities = prop.get("amenities", {})
             if not all(prop_amenities.get(a) for a in amenities):
