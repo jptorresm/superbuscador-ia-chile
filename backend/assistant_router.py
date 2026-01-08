@@ -16,10 +16,15 @@ class AssistantRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
 
+
+# =========================
+# META FEEDBACK (MVP)
+# =========================
+
 def build_meta(filters: dict) -> dict:
     """
-    Construye feedback humano para el usuario.
-    No bloquea, no pregunta, solo explica.
+    Construye feedback humano visible para el usuario.
+    No pregunta, no bloquea, solo explica y sugiere.
     """
 
     operacion = filters.get("operacion")
@@ -27,50 +32,34 @@ def build_meta(filters: dict) -> dict:
     precio_max = filters.get("precio_max_clp")
     dormitorios = filters.get("dormitorios")
 
-    # -----------------------
     # Interpretación principal
-    # -----------------------
-    interpretation_parts = []
+    parts = []
 
     if operacion:
-        interpretation_parts.append(
-            "arriendos" if operacion == "arriendo" else "ventas"
-        )
+        parts.append("arriendos" if operacion == "arriendo" else "ventas")
     else:
-        interpretation_parts.append("propiedades")
+        parts.append("propiedades")
 
     if comuna:
-        interpretation_parts.append(f"en {comuna.title()}")
+        parts.append(f"en {comuna.title()}")
 
-    interpretation = "Busqué " + " ".join(interpretation_parts)
+    interpretation = "Busqué " + " ".join(parts)
 
-    # -----------------------
     # Supuestos
-    # -----------------------
     assumptions = []
-
-    if not precio_max:
-        assumptions.append("Sin presupuesto definido")
-
-    if not dormitorios:
-        assumptions.append("Sin número de dormitorios")
+    suggestions = []
 
     if not comuna:
         assumptions.append("Sin comuna específica")
-
-    # -----------------------
-    # Sugerencias
-    # -----------------------
-    suggestions = []
+        suggestions.append("Indicar una comuna mejora los resultados")
 
     if not precio_max:
+        assumptions.append("Sin presupuesto definido")
         suggestions.append("Puedes agregar un precio máximo")
 
     if not dormitorios:
+        assumptions.append("Sin número de dormitorios")
         suggestions.append("También puedes indicar dormitorios")
-
-    if not comuna:
-        suggestions.append("Indicar una comuna mejora los resultados")
 
     return {
         "interpretation": interpretation,
@@ -103,13 +92,13 @@ def extract_filters_from_text(text: str) -> Dict[str, Any]:
     t = text.lower()
     filters: Dict[str, Any] = {}
 
-    # operación
+    # Operación
     if "arriendo" in t:
         filters["operacion"] = "arriendo"
     elif "venta" in t:
         filters["operacion"] = "venta"
 
-    # comuna
+    # Comuna
     comunas = [
         "providencia", "ñuñoa", "las condes",
         "vitacura", "la reina", "santiago"
@@ -119,7 +108,7 @@ def extract_filters_from_text(text: str) -> Dict[str, Any]:
             filters["comuna"] = c
             break
 
-    # precio CLP
+    # Precio CLP
     nums = re.findall(r"\d{3,}", t.replace(".", ""))
     if nums:
         try:
@@ -144,19 +133,20 @@ def assistant(req: AssistantRequest):
             operacion=filters.get("operacion"),
             precio_max_clp=filters.get("precio_max_clp"),
         )
-    except Exception as e:
+    except Exception:
         return {
             "type": "results",
+            "meta": build_meta(filters),
             "filters": filters,
             "results": [],
             "error": "search_engine_error",
         }
 
-    # 🔥 LIMPIEZA OBLIGATORIA
     safe_results = clean_for_json(results)
 
     return {
         "type": "results",
+        "meta": build_meta(filters),
         "filters": filters,
-        "results": safe_results,
+        "results": safe_results[:10],  # MVP: máximo 10
     }
