@@ -16,6 +16,68 @@ class AssistantRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
 
+def build_meta(filters: dict) -> dict:
+    """
+    Construye feedback humano para el usuario.
+    No bloquea, no pregunta, solo explica.
+    """
+
+    operacion = filters.get("operacion")
+    comuna = filters.get("comuna")
+    precio_max = filters.get("precio_max_clp")
+    dormitorios = filters.get("dormitorios")
+
+    # -----------------------
+    # Interpretación principal
+    # -----------------------
+    interpretation_parts = []
+
+    if operacion:
+        interpretation_parts.append(
+            "arriendos" if operacion == "arriendo" else "ventas"
+        )
+    else:
+        interpretation_parts.append("propiedades")
+
+    if comuna:
+        interpretation_parts.append(f"en {comuna.title()}")
+
+    interpretation = "Busqué " + " ".join(interpretation_parts)
+
+    # -----------------------
+    # Supuestos
+    # -----------------------
+    assumptions = []
+
+    if not precio_max:
+        assumptions.append("Sin presupuesto definido")
+
+    if not dormitorios:
+        assumptions.append("Sin número de dormitorios")
+
+    if not comuna:
+        assumptions.append("Sin comuna específica")
+
+    # -----------------------
+    # Sugerencias
+    # -----------------------
+    suggestions = []
+
+    if not precio_max:
+        suggestions.append("Puedes agregar un precio máximo")
+
+    if not dormitorios:
+        suggestions.append("También puedes indicar dormitorios")
+
+    if not comuna:
+        suggestions.append("Indicar una comuna mejora los resultados")
+
+    return {
+        "interpretation": interpretation,
+        "assumptions": assumptions,
+        "suggestions": suggestions,
+    }
+
 
 # =========================
 # JSON SAFE
