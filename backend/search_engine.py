@@ -21,8 +21,43 @@ def operacion_match(prop: dict, operacion: Optional[str]) -> bool:
     return prop.get("operacion") == operacion
 
 def cumple_precio(prop: dict, filtros: dict) -> bool:
-    # Por ahora, no filtrar por precio (evita edge cases mientras cerramos Render)
+    """
+    Regla FINAL:
+    - Si la propiedad no publica precio → se descarta cuando hay filtro de precio
+    - Venta → comparar en UF (preferido)
+    - Arriendo → comparar en CLP (preferido)
+    """
+
+    operacion = filtros.get("operacion")
+    max_clp = filtros.get("precio_max_clp")
+    max_uf = filtros.get("precio_max_uf")
+
+    precio = prop.get("precio", {})
+
+    # Si hay filtro de precio pero el precio no es visible → descartar
+    if (max_clp or max_uf) and not precio.get("visible"):
+        return False
+
+    # -----------------------
+    # VENTA → UF
+    # -----------------------
+    if operacion == "venta" and max_uf is not None:
+        valor = precio.get("uf") or precio.get("valor")
+        if valor is None:
+            return False
+        return valor <= max_uf
+
+    # -----------------------
+    # ARRIENDO → CLP
+    # -----------------------
+    if operacion == "arriendo" and max_clp is not None:
+        valor = precio.get("clp") or precio.get("valor")
+        if valor is None:
+            return False
+        return valor <= max_clp
+
     return True
+
 
 def search_properties(
     comuna: Optional[Any] = None,
