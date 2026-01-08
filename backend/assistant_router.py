@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import math
 import re
 
@@ -47,7 +47,7 @@ def extract_filters_from_text(text: str) -> Dict[str, Any]:
     elif "venta" in t:
         filters["operacion"] = "venta"
 
-    # comunas básicas (expandible)
+    # comunas básicas
     comunas = [
         "providencia", "ñuñoa", "las condes",
         "vitacura", "la reina", "santiago"
@@ -57,7 +57,7 @@ def extract_filters_from_text(text: str) -> Dict[str, Any]:
             filters["comuna"] = c
             break
 
-    # precio CLP (número largo)
+    # precio CLP
     nums = re.findall(r"\d{3,}", t.replace(".", ""))
     if nums:
         try:
@@ -66,6 +66,55 @@ def extract_filters_from_text(text: str) -> Dict[str, Any]:
             pass
 
     return filters
+
+
+# =========================
+# META (INTELIGENCIA VISIBLE)
+# =========================
+
+def build_meta(filters: Dict[str, Any], results_count: int) -> Dict[str, Any]:
+    interpretation_parts: List[str] = []
+
+    operacion = filters.get("operacion")
+    comuna = filters.get("comuna")
+    precio = filters.get("precio_max_clp")
+
+    # interpretación principal
+    if operacion == "arriendo":
+        interpretation_parts.append("arriendos")
+    elif operacion == "venta":
+        interpretation_parts.append("ventas")
+    else:
+        interpretation_parts.append("propiedades")
+
+    if comuna:
+        interpretation_parts.append(f"en {comuna.title()}")
+
+    interpretation = "Busqué " + " ".join(interpretation_parts)
+
+    # supuestos detectados
+    assumptions = []
+    suggestions = []
+
+    if not comuna:
+        assumptions.append("No indicaste comuna")
+        suggestions.append("Indicar comuna (ej: Providencia, Ñuñoa)")
+
+    if not precio:
+        assumptions.append("No indicaste presupuesto")
+        suggestions.append("Agregar precio máximo")
+
+    if results_count > 20:
+        suggestions.append("Agregar más filtros para acotar resultados")
+
+    if results_count == 0:
+        suggestions.append("Probar otra comuna o aumentar presupuesto")
+
+    return {
+        "interpretation": interpretation,
+        "assumptions": assumptions,
+        "suggestions": suggestions
+    }
 
 
 # =========================
@@ -82,17 +131,24 @@ def assistant(req: AssistantRequest):
             operacion=filters.get("operacion"),
             precio_max_clp=filters.get("precio_max_clp"),
         )
-    except Exception as e:
+    except Exception:
         # blindaje total: nunca 500
         return {
             "type": "results",
             "filters": filters,
-            "results": [],
-            "error": "search_engine_error"
+            "meta": {
+                "interpretation": "No pude ejecutar la búsqueda",
+                "assumptions": [],
+                "suggestions": ["Intenta reformular la búsqueda"]
+            },
+            "results": []
         }
+
+    safe_results = clean_for_json(results)
 
     return {
         "type": "results",
         "filters": filters,
-        "results": clean_for_json(results),
+        "meta": build_meta(filters, len(safe_results)),
+        "results": safe_results
     }
