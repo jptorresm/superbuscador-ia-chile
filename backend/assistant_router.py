@@ -1,7 +1,6 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
-import math
 import re
 
 from backend.search_engine import search_properties
@@ -18,101 +17,59 @@ class AssistantRequest(BaseModel):
 
 
 # =========================
-# META FEEDBACK (MVP)
+# UTILIDADES
 # =========================
 
-def build_meta(filters: dict) -> dict:
-    """
-    Construye feedback humano visible para el usuario.
-    No pregunta, no bloquea, solo explica y sugiere.
-    """
+def safe_lower(val):
+    return val.lower() if isinstance(val, str) else ""
 
-    operacion = filters.get("operacion")
-    comuna = filters.get("comuna")
-    precio_max = filters.get("precio_max_clp")
-    dormitorios = filters.get("dormitorios")
-
-    # Interpretación principal
-    parts = []
-
-    if operacion:
-        parts.append("arriendos" if operacion == "arriendo" else "ventas")
-    else:
-        parts.append("propiedades")
-
-    if comuna:
-        parts.append(f"en {comuna.title()}")
-
-    interpretation = "Busqué " + " ".join(parts)
-
-    # Supuestos
-    assumptions = []
-    suggestions = []
-
-    if not comuna:
-        assumptions.append("Sin comuna específica")
-        suggestions.append("Indicar una comuna mejora los resultados")
-
-    if not precio_max:
-        assumptions.append("Sin presupuesto definido")
-        suggestions.append("Puedes agregar un precio máximo")
-
-    if not dormitorios:
-        assumptions.append("Sin número de dormitorios")
-        suggestions.append("También puedes indicar dormitorios")
-
-    return {
-        "interpretation": interpretation,
-        "assumptions": assumptions,
-        "suggestions": suggestions,
-    }
-
-
-# =========================
-# JSON SAFE
-# =========================
-
-def clean_for_json(obj):
-    if isinstance(obj, float):
-        if math.isnan(obj) or math.isinf(obj):
-            return None
-        return obj
-    if isinstance(obj, dict):
-        return {k: clean_for_json(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [clean_for_json(v) for v in obj]
-    return obj
-
-
-# =========================
-# NLP SIMPLE
-# =========================
 
 def extract_filters_from_text(text: str) -> Dict[str, Any]:
-    t = text.lower()
+    """
+    Parser SIMPLE y DETERMINISTA.
+    Nada de magia aún.
+    """
+    t = safe_lower(text)
     filters: Dict[str, Any] = {}
 
+    # -----------------------
     # Operación
+    # -----------------------
     if "arriendo" in t:
         filters["operacion"] = "arriendo"
     elif "venta" in t:
         filters["operacion"] = "venta"
 
-    # Comuna
-    comunas = [
-        "providencia", "ñuñoa", "las condes",
-        "vitacura", "la reina", "santiago"
+    # -----------------------
+    # Comunas (hardcode inicial)
+    # -----------------------
+    COMUNAS = [
+        "providencia",
+        "las condes",
+        "vitacura",
+        "ñuñoa",
+        "la reina",
+        "santiago",
+        "macul",
+        "peñalolén",
+        "san miguel",
+        "san joaquín",
     ]
-    for c in comunas:
+
+    for c in COMUNAS:
         if c in t:
             filters["comuna"] = c
             break
 
-    # Precio CLP
-    nums = re.findall(r"\d{3,}", t.replace(".", ""))
-    if nums:
+    # -----------------------
+    # Precio máximo CLP (opcional)
+    # -----------------------
+    numbers = re.findall(r"\d{3,}", t.replace(".", ""))
+    if numbers:
         try:
-            filters["precio_max_clp"] = int(nums[0])
+            value = int(numbers[0])
+            if value > 100000:
+                filters["precio_max_clp"] = value
         except Exception:
             pass
 
@@ -125,28 +82,36 @@ def extract_filters_from_text(text: str) -> Dict[str, Any]:
 
 @router.post("/assistant")
 def assistant(req: AssistantRequest):
-    filters = extract_filters_from_text(req.message or "")
+    """
+    Endpoint estable:
+    - NO lanza 500
+    - NO hace loops
+    - Siempre responde JSON
+    """
 
+    message = req.message or ""
+
+    # 1️⃣ Extraer filtros
+    filters = extract_filters_from_text(message)
+
+    # 2️⃣ Buscar propiedades
     try:
         results = search_properties(
-            comuna=filters.get("comuna"),
             operacion=filters.get("operacion"),
+            comuna=filters.get("comuna"),
             precio_max_clp=filters.get("precio_max_clp"),
         )
-    except Exception:
+    except Exception as e:
         return {
             "type": "results",
-            "meta": build_meta(filters),
             "filters": filters,
             "results": [],
-            "error": "search_engine_error",
+            "error": "Error interno al buscar propiedades",
         }
 
-    safe_results = clean_for_json(results)
-
+    # 3️⃣ Respuesta estándar
     return {
         "type": "results",
-        "meta": build_meta(filters),
         "filters": filters,
-        "results": safe_results[:10],  # MVP: máximo 10
+        "results": results,
     }
