@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
+import math
 import re
 
 from backend.search_engine import search_properties
@@ -17,59 +18,50 @@ class AssistantRequest(BaseModel):
 
 
 # =========================
-# UTILIDADES
+# JSON SAFE (CRÍTICO)
 # =========================
 
-def safe_lower(val):
-    return val.lower() if isinstance(val, str) else ""
+def clean_for_json(obj):
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    if isinstance(obj, dict):
+        return {k: clean_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [clean_for_json(v) for v in obj]
+    return obj
 
+
+# =========================
+# NLP SIMPLE (MPV)
+# =========================
 
 def extract_filters_from_text(text: str) -> Dict[str, Any]:
-    """
-    Parser SIMPLE y DETERMINISTA.
-    Nada de magia aún.
-    """
-    t = safe_lower(text)
+    t = (text or "").lower()
     filters: Dict[str, Any] = {}
 
-    # -----------------------
-    # Operación
-    # -----------------------
+    # operación
     if "arriendo" in t:
         filters["operacion"] = "arriendo"
     elif "venta" in t:
         filters["operacion"] = "venta"
 
-    # -----------------------
-    # Comunas (hardcode inicial)
-    # -----------------------
-    COMUNAS = [
-        "providencia",
-        "las condes",
-        "vitacura",
-        "ñuñoa",
-        "la reina",
-        "santiago",
-        "macul",
-        "peñalolén",
-        "san miguel",
-        "san joaquín",
+    # comunas básicas (expandible)
+    comunas = [
+        "providencia", "ñuñoa", "las condes",
+        "vitacura", "la reina", "santiago"
     ]
-
-    for c in COMUNAS:
+    for c in comunas:
         if c in t:
             filters["comuna"] = c
             break
 
-    # -----------------------
-    # Precio máximo CLP (opcional)
-    # -----------------------
-    numbers = re.findall(r"\d{3,}", t.replace(".", ""))
-    if numbers:
+    # precio CLP (número largo)
+    nums = re.findall(r"\d{3,}", t.replace(".", ""))
+    if nums:
         try:
-            value = int(numbers[0])
-            if value > 100000:
-                filters["precio_max_clp"] = value
+            filters["precio_max_clp"] = int(nums[0])
         except Exception:
             pass
 
@@ -77,41 +69,30 @@ def extract_filters_from_text(text: str) -> Dict[str, Any]:
 
 
 # =========================
-# ENDPOINT
+# ENDPOINT PRINCIPAL
 # =========================
 
 @router.post("/assistant")
 def assistant(req: AssistantRequest):
-    """
-    Endpoint estable:
-    - NO lanza 500
-    - NO hace loops
-    - Siempre responde JSON
-    """
+    filters = extract_filters_from_text(req.message)
 
-    message = req.message or ""
-
-    # 1️⃣ Extraer filtros
-    filters = extract_filters_from_text(message)
-
-    # 2️⃣ Buscar propiedades
     try:
         results = search_properties(
-            operacion=filters.get("operacion"),
             comuna=filters.get("comuna"),
+            operacion=filters.get("operacion"),
             precio_max_clp=filters.get("precio_max_clp"),
         )
     except Exception as e:
+        # blindaje total: nunca 500
         return {
             "type": "results",
             "filters": filters,
             "results": [],
-            "error": "Error interno al buscar propiedades",
+            "error": "search_engine_error"
         }
 
-    # 3️⃣ Respuesta estándar
     return {
         "type": "results",
         "filters": filters,
-        "results": results,
+        "results": clean_for_json(results),
     }
