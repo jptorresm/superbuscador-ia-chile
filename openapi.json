@@ -3,7 +3,7 @@
   "info": {
     "title": "SuperBuscador IA Chile",
     "description": "API conversacional para búsqueda inteligente de propiedades inmobiliarias en Chile. La IA interpreta lenguaje natural, decide si preguntar o buscar, y devuelve resultados estructurados.",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "servers": [
     {
@@ -15,7 +15,7 @@
     "/assistant": {
       "post": {
         "summary": "Asistente conversacional inmobiliario",
-        "description": "Recibe un mensaje en lenguaje natural. La IA decide si debe pedir más información o ejecutar una búsqueda real de propiedades.",
+        "description": "Recibe un mensaje en lenguaje natural. El backend decide si debe pedir más información o ejecutar una búsqueda real.",
         "operationId": "assistant",
         "requestBody": {
           "required": true,
@@ -29,46 +29,21 @@
                     "description": "Mensaje del usuario en lenguaje natural"
                   }
                 },
-                "required": ["message"]
+                "required": ["message"],
+                "additionalProperties": false
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Respuesta del asistente",
+            "description": "Respuesta del asistente (estructura flexible)",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "enum": ["question", "results", "error"],
-                      "description": "Tipo de respuesta del asistente"
-                    },
-                    "message": {
-                      "type": "string",
-                      "description": "Mensaje para el usuario (pregunta o explicación)",
-                      "nullable": true
-                    },
-                    "missing_fields": {
-                      "type": "array",
-                      "items": { "type": "string" },
-                      "description": "Campos faltantes cuando type = question",
-                      "nullable": true
-                    },
-                    "results": {
-                      "type": "array",
-                      "description": "Resultados de búsqueda cuando type = results",
-                      "items": {
-                        "type": "object",
-                        "additionalProperties": true
-                      },
-                      "nullable": true
-                    }
-                  },
-                  "required": ["type"]
+                  "description": "Respuesta conversacional del asistente. La estructura puede variar según el estado de la conversación.",
+                  "additionalProperties": true
                 }
               }
             }
